@@ -40,6 +40,15 @@ async function testFiles(t) {
   const r = await fetch(BASE + `/api/fs/${s.id}/download${q(dir + '/datoteka s razmakom.bin')}`);
   const got = Buffer.from(await r.arrayBuffer());
   if (!got.equals(data)) throw new Error(`preuzeti sadržaj se razlikuje (${got.length} B)`);
+  // slanje mape: ugniježđene mape (ensure je idempotentan) + datoteka u najdubljoj
+  const deep = dir + '/mapa/pod mapa/treća';
+  await post(`/api/fs/${s.id}/mkdir${q(deep)}&ensure=1`);
+  await post(`/api/fs/${s.id}/mkdir${q(deep)}&ensure=1`);
+  await post(`/api/fs/${s.id}/mkdir${q(dir + '/mapa')}&ensure=1`);
+  const small = Buffer.from('MTerm mapa ' + t.protocol);
+  await api(`/api/fs/${s.id}/upload${q(deep + '/a.txt')}`, { method: 'PUT', body: small, headers: { 'X-File-Size': String(small.length) } });
+  const dl = await api(`/api/fs/${s.id}/list${q(deep)}`);
+  if (!dl.items.find((i) => i.name === 'a.txt' && i.size === small.length)) throw new Error('datoteka u podmapi: ' + JSON.stringify(dl.items));
   await post(`/api/fs/${s.id}/rename${q(dir + '/datoteka s razmakom.bin')}`, { to: dir + '/novo.bin' });
   const list2 = await api(`/api/fs/${s.id}/list${q(dir)}`);
   if (!list2.items.find((i) => i.name === 'novo.bin')) throw new Error('preimenovanje nije uspjelo');

@@ -54,6 +54,27 @@ function errMsg(e) {
   return e.message || String(e);
 }
 
+// Kreira mapu (i nadređene) ako ne postoji - postojeća mapa nije greška
+async function ensureDir(a, p) {
+  if (p === '/') return;
+  try {
+    await a.mkdir(p);
+  } catch (err) {
+    const parent = path.dirname(p), name = path.basename(p);
+    let items;
+    try { items = await a.list(parent); } catch {
+      // nadređena mapa ne postoji - kreiraj je pa pokušaj ponovno
+      await ensureDir(a, parent);
+      await a.mkdir(p);
+      return;
+    }
+    const it = items.find((i) => i.name === name);
+    if (it && (it.type === 'dir' || it.target === 'dir')) return;
+    if (it) throw new Error(`"${name}" već postoji i nije mapa.`);
+    throw err;
+  }
+}
+
 function getSession(id) {
   const s = sessions.get(id);
   if (!s) return null;
@@ -129,7 +150,8 @@ export async function handleFilesApi(req, res, url) {
       return json(res, 200, { ok: true });
     }
     if (action === 'mkdir' && req.method === 'POST') {
-      await a.mkdir(p);
+      if (url.searchParams.get('ensure') === '1') await ensureDir(a, p);
+      else await a.mkdir(p);
       return json(res, 200, { ok: true });
     }
     if (action === 'delete' && req.method === 'POST') {

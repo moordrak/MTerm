@@ -632,6 +632,11 @@ const fmtSize = (n) => {
   return (i ? n.toFixed(n < 10 ? 1 : 0) : n) + ' ' + u[i];
 };
 const fmtDate = (t) => (t ? new Date(t).toLocaleString('hr-HR', { dateStyle: 'short', timeStyle: 'short' }) : '');
+// hrvatska množina: plural(n, 'datoteka', 'datoteke', 'datoteka')
+const plural = (n, one, few, many) => {
+  const d = n % 10, h = n % 100;
+  return `${n} ${d === 1 && h !== 11 ? one : d >= 2 && d <= 4 && (h < 12 || h > 14) ? few : many}`;
+};
 const joinPath = (dir, name) => (dir.endsWith('/') ? dir : dir + '/') + name;
 const parentPath = (p) => { const s = p.replace(/\/+$/, '').split('/'); s.pop(); return s.join('/') || '/'; };
 
@@ -650,12 +655,14 @@ class FileTab {
         <button class="btn small" data-a="up" title="Mapa iznad">⬆</button>
         <button class="btn small" data-a="refresh" title="Osvježi">↻</button>
         <form class="pathbar"><input name="path" spellcheck="false"></form>
-        <button class="btn small" data-a="upload">⤒ Pošalji</button>
+        <button class="btn small" data-a="upload" title="Pošalji datoteke">⤒ Pošalji</button>
+        <button class="btn small" data-a="uploadFolder" title="Pošalji cijelu mapu s podmapama">⤒ Pošalji mapu</button>
         <button class="btn small" data-a="download">⤓ Preuzmi</button>
         <button class="btn small" data-a="mkdir">+ Mapa</button>
         <button class="btn small" data-a="rename">Preimenuj</button>
         <button class="btn small danger" data-a="delete">Obriši</button>
-        <input type="file" multiple hidden>
+        <input type="file" multiple hidden class="pick-files">
+        <input type="file" multiple hidden class="pick-folder" webkitdirectory directory>
       </div>
       <div class="toolbar"><span class="status">Spajanje...</span></div>
       <div class="list"><table><thead><tr>
@@ -665,7 +672,8 @@ class FileTab {
     this.statusEl = $('.status', this.pane);
     this.tbody = $('tbody', this.pane);
     this.listEl = $('.list', this.pane);
-    this.fileInput = $('input[type=file]', this.pane);
+    this.fileInput = $('.pick-files', this.pane);
+    this.folderInput = $('.pick-folder', this.pane);
     this.transfersEl = $('.transfers', this.pane);
 
     $('.fm > .toolbar', this.pane).addEventListener('click', (e) => {
@@ -674,6 +682,11 @@ class FileTab {
     });
     $('.pathbar', this.pane).addEventListener('submit', (e) => { e.preventDefault(); this.cd(e.target.path.value.trim() || '/'); });
     this.fileInput.addEventListener('change', () => { this.uploadFiles([...this.fileInput.files]); this.fileInput.value = ''; });
+    this.folderInput.addEventListener('change', () => {
+      const entries = [...this.folderInput.files].map((f) => ({ file: f, rel: f.webkitRelativePath || f.name }));
+      this.folderInput.value = '';
+      if (entries.length) this.uploadTree(entries, []);
+    });
     $('thead', this.pane).addEventListener('click', (e) => {
       const k = e.target.closest('th')?.dataset.k;
       if (!k) return;
@@ -687,8 +700,14 @@ class FileTab {
     this.listEl.addEventListener('dragover', (e) => e.preventDefault());
     this.listEl.addEventListener('drop', (e) => {
       e.preventDefault(); dragDepth = 0; this.showDrop(false);
+      // stavke treba uzeti odmah, dok je događaj aktivan
+      const roots = [...(e.dataTransfer.items || [])].map((i) => i.webkitGetAsEntry?.()).filter(Boolean);
       const files = [...(e.dataTransfer.files || [])];
-      if (files.length) this.uploadFiles(files);
+      if (roots.some((r) => r.isDirectory)) {
+        this.setStatus('Čitanje sadržaja mape...');
+        readDroppedEntries(roots).then(({ entries, dirs }) => this.uploadTree(entries, dirs))
+          .catch((err) => toast('Čitanje mape nije uspjelo: ' + err.message, true));
+      } else if (files.length) this.uploadFiles(files);
     });
     this.pane.tabIndex = 0;
     this.pane.addEventListener('keydown', (e) => {
@@ -804,6 +823,7 @@ class FileTab {
   up() { if (this.path !== '/') this.cd(parentPath(this.path)); }
   refresh() { if (this.sid) this.cd(this.path); else this.connect(); }
   upload() { this.fileInput.click(); }
+  uploadFolder() { this.folderInput.click(); }
 
   download() {
     const files = this.selected().filter((i) => !this.isDir(i));
@@ -849,6 +869,97 @@ class FileTab {
     this.refresh();
   }
 
+  // slanje jedne datoteke; onProgress(učitano bajtova); vraća {promise, abort}
+  sendFile(remotePath, f, onProgress) {
+    const xhr = new XMLHttpRequest();
+    const promise = new Promise((resolve, reject) => {
+      xhr.open('PUT', this.url('upload', remotePath));
+      xhr.setRequestHeader('X-File-Size', String(f.size));
+      xhr.setRequestHeader('Content-Type', 'application/octet-stream');
+      xhr.upload.onprogress = (e) => onProgress?.(e.loaded);
+      xhr.onload = () => {
+        let d = {};
+        try { d = JSON.parse(xhr.responseText); } catch {}
+        if (xhr.status === 401) showLogin();
+        xhr.status === 200 ? resolve() : reject(new Error(d.error || 'HTTP ' + xhr.status));
+      };
+      xhr.onerror = () => reject(new Error('Mrežna greška'));
+      xhr.onabort = () => reject(new Error('Prekinuto'));
+      xhr.send(f);
+    });
+    return { promise, abort: () => xhr.abort() };
+  }
+
+  // Slanje strukture mapa: entries = [{file, rel: 'mapa/pod/datoteka.txt'}], dirs = ['mapa/prazna']
+  async uploadTree(entries, dirs) {
+    if (!this.sid) return;
+    const base = this.path;
+    const allDirs = new Set(dirs);
+    for (const e of entries) {
+      const parts = e.rel.split('/').slice(0, -1);
+      for (let i = 1; i <= parts.length; i++) allDirs.add(parts.slice(0, i).join('/'));
+    }
+    const dirList = [...allDirs].filter(Boolean).sort((a, b) => a.split('/').length - b.split('/').length || a.localeCompare(b));
+    const tops = [...new Set(entries.map((e) => e.rel.split('/')[0]).concat(dirList.map((d) => d.split('/')[0])))];
+    const total = entries.reduce((s, e) => s + e.file.size, 0);
+
+    const row = document.createElement('div');
+    row.className = 'transfer';
+    row.innerHTML = `<span class="tname">📁 ${esc(tops.length === 1 ? tops[0] : plural(tops.length, 'mapa', 'mape', 'mapa'))}
+        · ${plural(entries.length, 'datoteka', 'datoteke', 'datoteka')} · ${fmtSize(total)} <span class="muted tcur"></span></span>
+      <progress max="100" value="0"></progress><span class="tstate">0%</span>
+      <button class="icon-btn tcancel" title="Prekini">✕</button>`;
+    this.transfersEl.prepend(row);
+    const prog = $('progress', row), st = $('.tstate', row), cur = $('.tcur', row);
+    let cancelled = false, current = null;
+    $('.tcancel', row).addEventListener('click', () => { cancelled = true; current?.abort(); });
+
+    const failed = [];
+    try {
+      // 1) mape
+      for (let i = 0; i < dirList.length && !cancelled; i++) {
+        cur.textContent = `· mapa ${i + 1}/${dirList.length}`;
+        try {
+          await api(this.url('mkdir', joinPath(base, dirList[i])) + '&ensure=1', { method: 'POST' });
+        } catch (err) {
+          throw new Error(`Mapa "${dirList[i]}": ${err.message}`);
+        }
+      }
+      // 2) datoteke
+      let done = 0;
+      for (let i = 0; i < entries.length && !cancelled; i++) {
+        const { file, rel } = entries[i];
+        cur.textContent = `· ${i + 1}/${entries.length} ${rel}`;
+        current = this.sendFile(joinPath(base, rel), file, (loaded) => {
+          const p = total ? Math.round(((done + loaded) / total) * 100) : Math.round((i / entries.length) * 100);
+          prog.value = p; st.textContent = p + '%';
+        });
+        try { await current.promise; }
+        catch (err) { if (!cancelled) failed.push(`${rel}: ${err.message}`); }
+        done += file.size;
+      }
+      current = null;
+      $('.tcancel', row).remove();
+      if (cancelled) {
+        row.classList.add('fail'); st.textContent = 'Prekinuto'; cur.textContent = '';
+      } else if (failed.length) {
+        row.classList.add('fail');
+        st.textContent = plural(failed.length, 'greška', 'greške', 'grešaka');
+        st.title = failed.join('\n');
+        cur.textContent = '';
+        toast(`Mapa poslana, ali neuspješno: ${plural(failed.length, 'datoteka', 'datoteke', 'datoteka')} (${failed[0]})`, true, 8000);
+      } else {
+        row.classList.add('done'); prog.value = 100; st.textContent = 'Gotovo'; cur.textContent = '';
+        setTimeout(() => row.remove(), 8000);
+      }
+    } catch (err) {
+      $('.tcancel', row)?.remove();
+      row.classList.add('fail'); st.textContent = err.message; cur.textContent = '';
+      toast(err.message, true);
+    }
+    if (this.path === base) this.refresh();
+  }
+
   async uploadFiles(files) {
     if (!this.sid) return;
     const dir = this.path;
@@ -859,21 +970,10 @@ class FileTab {
       this.transfersEl.prepend(row);
       const prog = $('progress', row), st = $('.tstate', row);
       try {
-        await new Promise((resolve, reject) => {
-          const xhr = new XMLHttpRequest();
-          xhr.open('PUT', this.url('upload', joinPath(dir, f.name)));
-          xhr.setRequestHeader('X-File-Size', String(f.size));
-          xhr.setRequestHeader('Content-Type', 'application/octet-stream');
-          xhr.upload.onprogress = (e) => { if (e.lengthComputable) { const p = Math.round((e.loaded / e.total) * 100); prog.value = p; st.textContent = p + '%'; } };
-          xhr.onload = () => {
-            let d = {};
-            try { d = JSON.parse(xhr.responseText); } catch {}
-            if (xhr.status === 401) showLogin();
-            xhr.status === 200 ? resolve() : reject(new Error(d.error || 'HTTP ' + xhr.status));
-          };
-          xhr.onerror = () => reject(new Error('Mrežna greška'));
-          xhr.send(f);
-        });
+        await this.sendFile(joinPath(dir, f.name), f, (loaded) => {
+          const p = f.size ? Math.round((loaded / f.size) * 100) : 100;
+          prog.value = p; st.textContent = p + '%';
+        }).promise;
         row.classList.add('done');
         prog.value = 100;
         st.textContent = 'Gotovo';
@@ -892,6 +992,31 @@ class FileTab {
     if (this.sid) fetch(`api/fs/${this.sid}/close`, { method: 'POST' }).catch(() => {});
   }
 }
+// Čitanje mapa ispuštenih u preglednik (File System Entries API)
+async function readDroppedEntries(roots) {
+  const entries = [], dirs = [];
+  const fileOf = (fe) => new Promise((res, rej) => fe.file(res, rej));
+  const readAll = (dirEntry) => new Promise((res, rej) => {
+    const reader = dirEntry.createReader(), out = [];
+    const next = () => reader.readEntries((batch) => {
+      if (!batch.length) return res(out);
+      out.push(...batch);
+      next(); // readEntries vraća najviše ~100 stavki odjednom
+    }, rej);
+    next();
+  });
+  async function walk(entry) {
+    const rel = entry.fullPath.replace(/^\/+/, '');
+    if (entry.isFile) entries.push({ file: await fileOf(entry), rel });
+    else if (entry.isDirectory) {
+      dirs.push(rel);
+      for (const child of await readAll(entry)) await walk(child);
+    }
+  }
+  for (const r of roots) await walk(r);
+  return { entries, dirs };
+}
+
 // ---------- pokretanje ----------
 (async function init() {
   // izbornik za mobilne uređaje
