@@ -96,7 +96,34 @@ input:focus, select:focus, textarea:focus { outline: none; border-color: var(--a
 .welcome h1 { margin: 0; }
 
 /* Upravitelj datoteka */
-.fm { flex: 1; display: flex; flex-direction: column; min-height: 0; background: var(--term-a, var(--bg-a)); backdrop-filter: blur(var(--blur)); }
+.fm-wrap { flex: 1; display: flex; flex-direction: column; min-height: 0; }
+.split { flex: 1; display: flex; min-height: 0; --split: 50%; }
+.split .side.local { flex: 0 0 var(--split); display: flex; flex-direction: column; min-width: 0;
+  background: var(--term-a, var(--bg-a)); backdrop-filter: blur(var(--blur)); }
+.split .side.local.hidden { display: none; }
+.split .divider { flex: 0 0 5px; cursor: col-resize; background: var(--border); }
+.split .divider:hover { background: var(--accent); }
+.split .divider.hidden { display: none; }
+.split .side .list { flex: 1; overflow: auto; position: relative; }
+.split .side table { width: 100%; border-collapse: collapse; }
+.split .side th { position: sticky; top: 0; background: var(--panel); text-align: left; font-weight: 600; color: var(--muted);
+  font-size: 12px; padding: 6px 10px; border-bottom: 1px solid var(--border); }
+.split .side td { padding: 5px 10px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+.split .side td.name { width: 100%; max-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.split .side td.num, .split .side th.num { text-align: right; }
+.split .side tr.row:hover { background: var(--hover); }
+.split .side tr.row.sel { background: var(--selbg); }
+.split .side .icon { display: inline-block; width: 20px; }
+.split .side .empty { padding: 30px; text-align: center; color: var(--muted); white-space: normal; line-height: 1.6; }
+.split .side .dropzone { position: absolute; inset: 0; border: 2px dashed var(--accent); background: rgba(34,211,238,.08);
+  display: flex; align-items: center; justify-content: center; font-size: 16px; pointer-events: none; }
+.lpath { flex: 1; min-width: 60px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); font-size: 12px; direction: rtl; text-align: left; }
+.side-label { font-size: 12px; font-weight: 600; color: var(--accent); white-space: nowrap; }
+.mono { font-family: ui-monospace, monospace; }
+.split-only { display: none; }
+.split-on .split-only { display: inline-block; }
+.split-on .fm.remote .perm { display: none; }
+.fm { flex: 1; display: flex; flex-direction: column; min-height: 0; min-width: 0; background: var(--term-a, var(--bg-a)); backdrop-filter: blur(var(--blur)); }
 .fm .pathbar { flex: 1; min-width: 200px; display: flex; gap: 6px; }
 .fm .pathbar input { font-family: ui-monospace, monospace; }
 .fm .list { flex: 1; overflow: auto; position: relative; }
@@ -113,7 +140,7 @@ input:focus, select:focus, textarea:focus { outline: none; border-color: var(--a
 .fm .icon { display: inline-block; width: 20px; }
 .fm .dropzone { position: absolute; inset: 0; border: 2px dashed var(--accent); background: rgba(34,211,238,.08);
   display: flex; align-items: center; justify-content: center; font-size: 18px; pointer-events: none; }
-.fm .empty { padding: 30px; text-align: center; color: var(--muted); }
+.fm .empty { padding: 30px; text-align: center; color: var(--muted); white-space: normal; }
 .transfers { max-height: 160px; overflow: auto; border-top: 1px solid var(--border); background: var(--panel-a); }
 .transfer { display: flex; align-items: center; gap: 10px; padding: 4px 10px; font-size: 12px; }
 .transfer .tname { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -157,6 +184,9 @@ body.sb-hidden #sidebar.open, body.sb-auto #sidebar.open { transform: none; }
 body.sb-hidden #btnPin, body.sb-auto #btnPin { display: inline-block; }
 body.sb-hidden #btnHideSidebar, body.sb-auto #btnHideSidebar { display: none; }
 @media (max-width: 760px) {
+  .split { flex-direction: column; }
+  .split .side.local { flex-basis: 45%; }
+  .split .divider { display: none; }
   #tabs .menu-btn { display: flex; }
   #sidebar { position: fixed; z-index: 20; height: 100%; transform: translateX(-100%); transition: transform .2s; }
   #sidebar.open { transform: none; }

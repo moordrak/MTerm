@@ -1,6 +1,6 @@
 {
   "name": "mterm",
-  "version": "1.3.0",
+  "version": "1.4.0",
   "description": "MTerm - web terminal (SSH) i upravitelj datoteka (SFTP, SCP, FTP, FTPS, WebDAV) u pregledniku",
   "type": "module",
   "main": "server/index.js",
@@ -14,7 +14,7 @@
   },
   "scripts": {
     "start": "node server/index.js",
-    "check": "node --check server/index.js && node --check server/auth.js && node --check server/ssh.js && node --check server/files.js && node --check server/storage.js && for f in server/adapters/*.js; do node --check $f || exit 1; done && node --check public/app.js && node --check public/themes.js && node --check public/backgrounds.js"
+    "check": "node --check server/index.js && node --check server/auth.js && node --check server/ssh.js && node --check server/files.js && node --check server/storage.js && node --check server/zip.js && for f in server/adapters/*.js; do node --check $f || exit 1; done && node --check public/app.js && node --check public/themes.js && node --check public/backgrounds.js"
   },
   "dependencies": {
     "@xterm/addon-fit": "^0.10.0",

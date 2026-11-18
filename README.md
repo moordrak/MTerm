@@ -27,6 +27,9 @@ Mogućnosti:
 - prijava lozinkom ili privatnim ključem (uz passphrase), keyboard-interactive
 - gumb **SFTP** u SSH tabu otvara datoteke istog servera
 - slanje datoteka i **cijelih mapa** (gumb ili povuci-i-ispusti) s prikazom napretka
+- preuzimanje cijelih mapa kao ZIP (u hodu, ZIP64)
+- **podijeljeni prikaz**: lokalne mape (ovo računalo) lijevo i udaljene desno, kopiranje u oba smjera
+  povlačenjem ili gumbima (Chrome/Edge preko HTTPS-a)
 - opcija za self-signed TLS certifikate (FTPS/WebDAVS)
 - zaštita pristupa samom MTermu korisnikom i lozinkom
 - Docker image (amd64 + arm64) i skripta za Proxmox LXC
@@ -108,10 +111,12 @@ location / {
     proxy_read_timeout 1d;
     client_max_body_size 0;      # bez ograničenja veličine za slanje datoteka
     proxy_request_buffering off;
+    proxy_buffering off;         # ZIP preuzimanje mapa ide odmah, bez čekanja
 }
 ```
 
-Za kopiranje/lijepljenje iz međuspremnika preglednik zahtijeva HTTPS.
+Za kopiranje/lijepljenje iz međuspremnika i za lokalne mape u podijeljenom prikazu preglednik zahtijeva HTTPS.
+Pristup lokalnim mapama radi u Chromeu i Edgeu (File System Access API); Firefox ga ne podržava.
 
 ## Sigurnost
 

@@ -1,5 +1,19 @@
 # Promjene
 
+## v1.4.0 (2026-11-18)
+
+### Novo
+- **Preuzimanje cijelih mapa** kao ZIP: označite mapu (ili više stavki) i kliknite ⤓ Preuzmi.
+  Bez oznake se nudi preuzimanje cijele trenutne mape. ZIP se slaže u hodu na serveru (bez privremenih
+  datoteka), podržava datoteke veće od 4 GB (ZIP64), čuva prazne mape i hrvatske znakove u imenima.
+  Stavke koje se ne mogu pročitati navode se u `_MTERM_GRESKE.txt` unutar ZIP-a.
+- **Podijeljeni prikaz** (gumb ⇆ Lokalno): lijevo mape na ovom računalu, desno na serveru.
+  - kopiranje u oba smjera gumbima *Na server ⇒* / *⇐ U lokalnu*, dvoklikom ili povlačenjem redova
+  - cijele mape s podmapama u oba smjera, s napretkom i prekidom
+  - nova lokalna mapa i brisanje lokalnih stavki
+  - širina se mijenja povlačenjem razdjelnika, a odabrana lokalna mapa se pamti
+  - zahtijeva Chrome ili Edge i HTTPS (ili localhost); u ostalim slučajevima prikazuje se uputa
+
 ## v1.3.0 (2026-11-18)
 
 ### Novo

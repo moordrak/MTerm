@@ -24,6 +24,36 @@ async function api(path, opts = {}) {
 }
 const post = (path, body) => api(path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body || {}) });
 
+// Minimalni čitač ZIP-a (metoda store) - za provjeru preuzimanja mape
+function readZip(buf) {
+  let e = buf.length - 22;
+  while (e >= 0 && buf.readUInt32LE(e) !== 0x06054b50) e--;
+  if (e < 0) throw new Error('ZIP: nema EOCD');
+  let count = buf.readUInt16LE(e + 10), cd = buf.readUInt32LE(e + 16);
+  if (cd === 0xffffffff || count === 0xffff) {
+    const z = Number(buf.readBigUInt64LE(e - 20 + 8));
+    count = Number(buf.readBigUInt64LE(z + 32)); cd = Number(buf.readBigUInt64LE(z + 48));
+  }
+  const out = new Map();
+  for (let i = 0; i < count; i++) {
+    if (buf.readUInt32LE(cd) !== 0x02014b50) throw new Error('ZIP: neispravan središnji direktorij');
+    let size = buf.readUInt32LE(cd + 24), off = buf.readUInt32LE(cd + 42);
+    const nl = buf.readUInt16LE(cd + 28), xl = buf.readUInt16LE(cd + 30), cl = buf.readUInt16LE(cd + 32);
+    const name = buf.subarray(cd + 46, cd + 46 + nl).toString('utf8');
+    let x = cd + 46 + nl;
+    while (x < cd + 46 + nl + xl) {
+      const id = buf.readUInt16LE(x), len = buf.readUInt16LE(x + 2);
+      if (id === 1) { let k = x + 4; if (size === 0xffffffff) { size = Number(buf.readBigUInt64LE(k)); k += 16; } if (off === 0xffffffff) off = Number(buf.readBigUInt64LE(k)); }
+      x += 4 + len;
+    }
+    const lnl = buf.readUInt16LE(off + 26), lxl = buf.readUInt16LE(off + 28);
+    const start = off + 30 + lnl + lxl;
+    out.set(name, buf.subarray(start, start + size));
+    cd += 46 + nl + xl + cl;
+  }
+  return out;
+}
+
 async function testFiles(t) {
   const s = await post('/api/fs/connect', t);
   const q = (p) => '?path=' + encodeURIComponent(p);
@@ -49,6 +79,21 @@ async function testFiles(t) {
   await api(`/api/fs/${s.id}/upload${q(deep + '/a.txt')}`, { method: 'PUT', body: small, headers: { 'X-File-Size': String(small.length) } });
   const dl = await api(`/api/fs/${s.id}/list${q(deep)}`);
   if (!dl.items.find((i) => i.name === 'a.txt' && i.size === small.length)) throw new Error('datoteka u podmapi: ' + JSON.stringify(dl.items));
+  // rekurzivni popis mape
+  const tree = await api(`/api/fs/${s.id}/tree${q(dir)}`);
+  if (!tree.dirs.includes('mapa/pod mapa/treća') || !tree.files.find((f) => f.rel === 'mapa/pod mapa/treća/a.txt'))
+    throw new Error('tree: ' + JSON.stringify(tree));
+  // preuzimanje mape kao ZIP i provjera sadržaja
+  const zr = await fetch(BASE + `/api/fs/${s.id}/zip${q(dir)}`);
+  if (!zr.ok) throw new Error('zip HTTP ' + zr.status);
+  const zip = readZip(Buffer.from(await zr.arrayBuffer()));
+  const top = 'mterm-test-' + t.protocol;
+  const za = zip.get(top + '/mapa/pod mapa/treća/a.txt');
+  if (!za || !za.equals(small)) throw new Error('zip a.txt: ' + [...zip.keys()].join(', '));
+  const zb = zip.get(top + '/datoteka s razmakom.bin');
+  if (!zb || !zb.equals(data)) throw new Error('zip velika datoteka');
+  if (!zip.has(top + '/mapa/pod mapa/')) throw new Error('zip mapa');
+  if ([...zip.keys()].some((k) => k.includes('_MTERM_GRESKE'))) throw new Error('zip sadrži greške: ' + zip.get([...zip.keys()].find((k) => k.includes('_MTERM_GRESKE'))));
   await post(`/api/fs/${s.id}/rename${q(dir + '/datoteka s razmakom.bin')}`, { to: dir + '/novo.bin' });
   const list2 = await api(`/api/fs/${s.id}/list${q(dir)}`);
   if (!list2.items.find((i) => i.name === 'novo.bin')) throw new Error('preimenovanje nije uspjelo');

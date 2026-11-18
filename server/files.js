@@ -5,6 +5,7 @@ import { SftpAdapter } from './adapters/sftp.js';
 import { ScpAdapter } from './adapters/scp.js';
 import { FtpAdapter } from './adapters/ftp.js';
 import { WebDavAdapter } from './adapters/webdav.js';
+import { ZipStream } from './zip.js';
 
 const IDLE_MINUTES = Number(process.env.MTERM_IDLE_MINUTES || 30);
 const sessions = new Map(); // id -> { adapter, protocol, last }
@@ -75,6 +76,73 @@ async function ensureDir(a, p) {
   }
 }
 
+// Rekurzivni obilazak udaljene mape: out.dirs = ['a', 'a/b'], out.files = [{rel, size, mtime}]
+async function walk(a, absDir, relDir, out, depth = 0) {
+  if (depth > 64) { out.errors.push(`${relDir}: preduboka struktura mapa`); return; }
+  let items;
+  try { items = await a.list(absDir); }
+  catch (e) { out.errors.push(`${relDir || absDir}: ${errMsg(e)}`); return; }
+  for (const i of items) {
+    const rel = relDir ? relDir + '/' + i.name : i.name;
+    const abs = path.join(absDir, i.name);
+    if (i.type === 'dir') {
+      out.dirs.push(rel);
+      await walk(a, abs, rel, out, depth + 1);
+    } else if (i.type === 'link' && i.target === 'dir') {
+      out.errors.push(`${rel}: simbolička veza na mapu je preskočena`);
+    } else {
+      out.files.push({ rel, size: i.size || 0, mtime: i.mtime || 0 });
+    }
+  }
+}
+
+async function sendZip(a, base, url, res) {
+  let names = null;
+  try { names = url.searchParams.get('items') ? JSON.parse(url.searchParams.get('items')) : null; } catch {}
+  // popis stavki: cijela mapa ili označene stavke
+  const plan = { dirs: [], files: [], errors: [] };
+  if (Array.isArray(names) && names.length) {
+    const listing = await a.list(base);
+    for (const n of names) {
+      const it = listing.find((x) => x.name === n);
+      if (!it) { plan.errors.push(`${n}: ne postoji`); continue; }
+      if (it.type === 'dir') { plan.dirs.push(n); await walk(a, path.join(base, n), n, plan); }
+      else if (it.type === 'link' && it.target === 'dir') plan.errors.push(`${n}: simbolička veza na mapu je preskočena`);
+      else plan.files.push({ rel: n, size: it.size || 0, mtime: it.mtime || 0 });
+    }
+  } else {
+    const top = path.basename(base) || 'root';
+    plan.dirs.push(top);
+    const sub = { dirs: [], files: [], errors: plan.errors };
+    await walk(a, base, '', sub);
+    plan.dirs.push(...sub.dirs.map((d) => top + '/' + d));
+    plan.files.push(...sub.files.map((f) => ({ ...f, rel: top + '/' + f.rel, src: f.rel })));
+  }
+  const zipName = (url.searchParams.get('name') || (path.basename(base) || 'mterm') + '.zip').replace(/[\\/\r\n"]/g, '_');
+  res.writeHead(200, {
+    'Content-Type': 'application/zip',
+    'Content-Disposition': `attachment; filename="${zipName.replace(/[^\x20-\x7e]/g, '_')}"; filename*=UTF-8''${encodeURIComponent(zipName)}`,
+    'Cache-Control': 'no-store',
+    'X-Content-Type-Options': 'nosniff',
+  });
+  const zip = new ZipStream(res);
+  try {
+    for (const d of plan.dirs) await zip.addDir(d, Date.now());
+    for (const f of plan.files) {
+      const src = path.join(base, f.src ?? f.rel);
+      const r = await zip.addFile(f.rel, f.mtime, f.size, (sink) => a.download(src, sink));
+      if (r.error) plan.errors.push(`${f.rel}: ${errMsg(r.error)}`);
+    }
+    if (plan.errors.length) {
+      await zip.addBuffer('_MTERM_GRESKE.txt', Buffer.from(
+        'Sljedeće stavke nisu preuzete ili su nepotpune:\r\n\r\n' + plan.errors.join('\r\n') + '\r\n', 'utf8'));
+    }
+    await zip.finish();
+  } catch (e) {
+    res.destroy(e); // klijent je prekinuo ili veza s serverom pukla
+  }
+}
+
 function getSession(id) {
   const s = sessions.get(id);
   if (!s) return null;
@@ -142,6 +210,15 @@ export async function handleFilesApi(req, res, url) {
         res.destroy(e);
       }
       return;
+    }
+    if (action === 'zip' && req.method === 'GET') {
+      return await sendZip(a, p, url, res);
+    }
+    if (action === 'tree' && req.method === 'GET') {
+      // rekurzivni popis (za preuzimanje mape u lokalnu mapu preglednika)
+      const out = { dirs: [], files: [], errors: [] };
+      await walk(a, p, '', out);
+      return json(res, 200, out);
     }
     if (action === 'upload' && (req.method === 'PUT' || req.method === 'POST')) {
       const size = req.headers['x-file-size'] != null ? Number(req.headers['x-file-size'])
