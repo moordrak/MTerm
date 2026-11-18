@@ -1,5 +1,6 @@
 # Promjene
 
+## v1.0.0 (2026-11-18)
 
 Prvo izdanje: web terminal i upravitelj datoteka u pregledniku.
 
