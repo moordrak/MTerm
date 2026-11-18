@@ -1,0 +1,28 @@
+{
+  "name": "mterm",
+  "version": "1.0.0",
+  "description": "MTerm - web terminal (SSH) i upravitelj datoteka (SFTP, SCP, FTP, FTPS, WebDAV) u pregledniku",
+  "type": "module",
+  "main": "server/index.js",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/moordrak/MTerm.git"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "start": "node server/index.js",
+    "check": "node --check server/index.js && node --check server/auth.js && node --check server/ssh.js && node --check server/files.js && for f in server/adapters/*.js; do node --check $f || exit 1; done && node --check public/app.js"
+  },
+  "dependencies": {
+    "@xterm/addon-fit": "^0.10.0",
+    "@xterm/addon-web-links": "^0.11.0",
+    "@xterm/xterm": "^5.5.0",
+    "basic-ftp": "^5.0.5",
+    "ssh2": "^1.16.0",
+    "webdav": "^5.8.0",
+    "ws": "^8.18.0"
+  }
+}

@@ -1,0 +1,12 @@
+services:
+  mterm:
+    image: ghcr.io/moordrak/mterm:latest
+    container_name: mterm
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    environment:
+      - MTERM_USER=admin
+      - MTERM_PASSWORD=promijeni-me   # obavezno promijenite!
+      # - MTERM_SESSION_HOURS=12
+      # - MTERM_IDLE_MINUTES=30

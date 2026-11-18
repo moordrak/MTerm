@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html lang="hr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>MTerm</title>
+  <link rel="icon" href="favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="vendor/xterm.css">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <!-- Prijava u MTerm -->
+  <div id="login" class="overlay hidden">
+    <form id="loginForm" class="card login-card">
+      <div class="brand big"><span class="logo">&gt;_</span> MTerm</div>
+      <label>Korisnik<input name="username" autocomplete="username" value="admin" required></label>
+      <label>Lozinka<input name="password" type="password" autocomplete="current-password" required></label>
+      <div id="loginError" class="error"></div>
+      <button class="btn primary" type="submit">Prijava</button>
+    </form>
+  </div>
+
+  <div id="app">
+    <aside id="sidebar">
+      <div class="brand"><span class="logo">&gt;_</span> MTerm <span id="version" class="muted"></span></div>
+      <button id="btnNew" class="btn primary wide">+ Nova veza</button>
+      <input id="search" class="search" placeholder="Traži veze...">
+      <div id="connList" class="conn-list"></div>
+      <div class="sidebar-footer">
+        <button id="btnExport" class="btn small" title="Izvoz veza u JSON">Izvoz</button>
+        <button id="btnImport" class="btn small" title="Uvoz veza iz JSON-a">Uvoz</button>
+        <button id="btnSettings" class="btn small" title="Postavke">⚙</button>
+        <button id="btnLogout" class="btn small hidden" title="Odjava">⏻</button>
+        <input id="importFile" type="file" accept="application/json" hidden>
+      </div>
+    </aside>
+
+    <main id="main">
+      <nav id="tabs"></nav>
+      <section id="panes">
+        <div id="welcome" class="welcome">
+          <div class="logo huge">&gt;_</div>
+          <h1>MTerm</h1>
+          <p>Web terminal i upravitelj datoteka.</p>
+          <p class="muted">SSH · SFTP · SCP · FTP · FTPS · WebDAV · WebDAVS</p>
+          <button class="btn primary" onclick="document.getElementById('btnNew').click()">+ Nova veza</button>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <!-- Uređivanje veze -->
+  <div id="connDialog" class="overlay hidden">
+    <form id="connForm" class="card dialog">
+      <h2 id="connTitle">Nova veza</h2>
+      <div class="grid">
+        <label class="span2">Naziv<input name="name" placeholder="npr. Proxmox server"></label>
+        <label>Protokol
+          <select name="protocol">
+            <option value="ssh">SSH (terminal)</option>
+            <option value="sftp">SFTP</option>
+            <option value="scp">SCP</option>
+            <option value="ftp">FTP</option>
+            <option value="ftps">FTPS</option>
+            <option value="webdav">WebDAV (http)</option>
+            <option value="webdavs">WebDAVS (https)</option>
+          </select>
+        </label>
+        <label>Grupa<input name="group" placeholder="npr. Homelab"></label>
+        <label>Host<input name="host" required placeholder="192.168.1.10 ili domena"></label>
+        <label>Port<input name="port" type="number" min="1" max="65535"></label>
+        <label>Korisnik<input name="username" autocomplete="off"></label>
+        <label>Lozinka<input name="password" type="password" autocomplete="new-password"></label>
+        <label class="span2 only-ftps">FTPS način
+          <select name="ftpsMode">
+            <option value="explicit">Eksplicitni (AUTH TLS, port 21)</option>
+            <option value="implicit">Implicitni (port 990)</option>
+          </select>
+        </label>
+        <label class="span2 only-webdav">Putanja na serveru<input name="basePath" placeholder="/remote.php/dav/files/korisnik"></label>
+        <label class="span2 only-ssh">Privatni ključ (opcionalno)
+          <textarea name="privateKey" rows="3" placeholder="-----BEGIN OPENSSH PRIVATE KEY-----"></textarea>
+        </label>
+        <label class="span2 only-ssh">Lozinka ključa (passphrase)<input name="passphrase" type="password" autocomplete="new-password"></label>
+        <label class="check span2 only-tls"><input type="checkbox" name="insecure"> Ignoriraj greške TLS certifikata (self-signed)</label>
+        <label class="check span2"><input type="checkbox" name="savePassword"> Spremi lozinku/ključ u ovom pregledniku</label>
+      </div>
+      <div class="actions">
+        <button type="button" class="btn danger" id="btnDelete">Obriši</button>
+        <span class="spacer"></span>
+        <button type="button" class="btn" id="btnCancel">Odustani</button>
+        <button type="button" class="btn" id="btnSave">Spremi</button>
+        <button type="submit" class="btn primary">Spoji</button>
+      </div>
+    </form>
+  </div>
+
+  <!-- Postavke -->
+  <div id="settingsDialog" class="overlay hidden">
+    <form id="settingsForm" class="card dialog small">
+      <h2>Postavke</h2>
+      <div class="grid">
+        <label>Veličina fonta<input name="fontSize" type="number" min="8" max="32"></label>
+        <label>Tema terminala
+          <select name="theme">
+            <option value="dark">Tamna</option>
+            <option value="solarized">Solarized</option>
+            <option value="light">Svijetla</option>
+          </select>
+        </label>
+        <label class="span2">Font<input name="fontFamily"></label>
+        <label class="check span2"><input type="checkbox" name="copyOnSelect"> Kopiraj označeni tekst automatski</label>
+      </div>
+      <div class="actions">
+        <span class="spacer"></span>
+        <button type="button" class="btn" id="btnSettingsCancel">Zatvori</button>
+        <button type="submit" class="btn primary">Spremi</button>
+      </div>
+    </form>
+  </div>
+
+  <div id="toast"></div>
+
+  <script src="vendor/xterm.js"></script>
+  <script src="vendor/addon-fit.js"></script>
+  <script src="vendor/addon-web-links.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

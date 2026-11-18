@@ -1,0 +1,102 @@
+name: CI i Docker image
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+  workflow_dispatch:
+
+env:
+  IMAGE: ghcr.io/${{ github.repository_owner }}/mterm
+
+jobs:
+  check:
+    name: Provjera i pokretanje
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm install --no-audit --no-fund
+      - run: npm run check
+      - name: Pokretanje servera
+        run: |
+          PORT=8080 node server/index.js &
+          for i in $(seq 1 20); do curl -fs http://127.0.0.1:8080/api/health && exit 0; sleep 1; done
+          exit 1
+
+  integration:
+    name: Integracijski testovi (SSH, SFTP, SCP, FTP, FTPS, WebDAV)
+    runs-on: ubuntu-latest
+    needs: check
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm install --no-audit --no-fund
+      - name: Pokretanje testnih servera
+        run: |
+          docker run -d --name sshd -p 2222:2222 -e PUID=1000 -e PGID=1000 \
+            -e PASSWORD_ACCESS=true -e USER_NAME=test -e USER_PASSWORD=test \
+            lscr.io/linuxserver/openssh-server:latest
+          docker run -d --name ftpd -p 21:21 -p 30000-30009:30000-30009 \
+            -e PUBLICHOST=127.0.0.1 -e FTP_USER_NAME=test -e FTP_USER_PASS=test -e FTP_USER_HOME=/home/test \
+            -e "ADDED_FLAGS=--tls=1" -e TLS_CN=localhost -e TLS_ORG=MTerm -e TLS_C=HR \
+            stilliard/pure-ftpd:latest
+          docker run -d --name webdav -p 8081:80 -e AUTH_TYPE=Basic -e USERNAME=test -e PASSWORD=test \
+            bytemark/webdav:latest
+          for port in 2222 21 8081; do
+            for i in $(seq 1 60); do nc -z 127.0.0.1 $port && break; sleep 1; done
+          done
+          sleep 5
+      - name: Testovi
+        run: |
+          PORT=8080 node server/index.js > mterm.log 2>&1 &
+          sleep 2
+          node test/integration.mjs
+      - name: Logovi
+        if: failure()
+        run: |
+          cat mterm.log || true
+          docker logs sshd 2>&1 | tail -30
+          docker logs ftpd 2>&1 | tail -30
+          docker logs webdav 2>&1 | tail -30
+
+  docker:
+    name: Docker image (amd64, arm64)
+    runs-on: ubuntu-latest
+    needs: check
+    if: github.event_name != 'pull_request'
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.IMAGE }}
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=raw,value=latest,enable=${{ startsWith(github.ref, 'refs/tags/v') }}
+            type=raw,value=edge,enable={{is_default_branch}}
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
