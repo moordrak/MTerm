@@ -26,7 +26,7 @@ Mogućnosti:
 - izvoz/uvoz veza u JSON (bez lozinki)
 - prijava lozinkom ili privatnim ključem (uz passphrase), keyboard-interactive
 - gumb **SFTP** u SSH tabu otvara datoteke istog servera
-- povuci-i-ispusti slanje datoteka s prikazom napretka
+- slanje datoteka i **cijelih mapa** (gumb ili povuci-i-ispusti) s prikazom napretka
 - opcija za self-signed TLS certifikate (FTPS/WebDAVS)
 - zaštita pristupa samom MTermu korisnikom i lozinkom
 - Docker image (amd64 + arm64) i skripta za Proxmox LXC

@@ -1,5 +1,16 @@
 # Promjene
 
+## v1.3.0 (2026-11-18)
+
+### Novo
+- **Slanje cijelih mapa** s podmapama:
+  - gumb **⤒ Pošalji mapu** u upravitelju datoteka
+  - ili povucite mapu (ili više njih) iz Explorera/Findera u prozor - sačuvaju se i prazne podmape
+  - na serveru se automatski kreira cijela struktura mapa (postojeće mape se koriste)
+  - jedan red napretka za cijelu mapu (broj datoteka, ukupna veličina, trenutna datoteka) i gumb ✕ za prekid
+  - ako neka datoteka ne uspije, ostale se i dalje šalju, a na kraju se prikaže popis grešaka
+- Radi za SFTP, SCP, FTP, FTPS i WebDAV.
+
 ## v1.2.0 (2026-11-18)
 
 ### Novo

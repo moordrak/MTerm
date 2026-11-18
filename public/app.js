@@ -772,7 +772,7 @@ class FileTab {
       $('.pathbar input', this.pane).value = this.path;
       this.render();
       const dirs = r.items.filter((i) => i.type === 'dir').length;
-      this.setStatus(`${this.conn.username ? this.conn.username + '@' : ''}${this.conn.host} · ${dirs} mapa, ${r.items.length - dirs} datoteka`);
+      this.setStatus(`${this.conn.username ? this.conn.username + '@' : ''}${this.conn.host} · ${plural(dirs, 'mapa', 'mape', 'mapa')}, ${plural(r.items.length - dirs, 'datoteka', 'datoteke', 'datoteka')}`);
     } catch {}
   }
 
