@@ -48,10 +48,16 @@ jobs:
             stilliard/pure-ftpd:latest
           docker run -d --name webdav -p 8081:80 -e AUTH_TYPE=Basic -e USERNAME=test -e PASSWORD=test \
             bytemark/webdav:latest
-          for port in 2222 21 8081; do
-            for i in $(seq 1 60); do nc -z 127.0.0.1 $port && break; sleep 1; done
-          done
-          sleep 5
+          wait_banner() { # port, očekivani pozdrav
+            for i in $(seq 1 90); do
+              (echo QUIT; sleep 1) | timeout 3 nc 127.0.0.1 "$1" 2>/dev/null | grep -q "$2" && { echo "port $1 spreman"; return 0; }
+              sleep 1
+            done
+            echo "port $1 nije spreman"; docker ps -a; return 1
+          }
+          wait_banner 2222 '^SSH-'
+          wait_banner 21 '^220'
+          for i in $(seq 1 60); do curl -s -o /dev/null http://127.0.0.1:8081/ && break; sleep 1; done
       - name: Testovi
         run: |
           PORT=8080 node server/index.js > mterm.log 2>&1 &
@@ -62,7 +68,7 @@ jobs:
         run: |
           cat mterm.log || true
           docker logs sshd 2>&1 | tail -30
-          docker logs ftpd 2>&1 | tail -30
+          docker logs ftpd 2>&1 | tail -60
           docker logs webdav 2>&1 | tail -30
 
   docker:
