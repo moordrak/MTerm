@@ -1,5 +1,18 @@
 # Promjene
 
+## v1.2.0 (2026-11-18)
+
+### Novo
+- **Skrivanje bočnog izbornika** (Postavke → Bočni izbornik):
+  - *Prikazan* - kao do sada; gumb « u izborniku ga sakriva
+  - *Skriven* - izbornik se otvara gumbom ☰ (gore lijevo) ili s **Ctrl+Shift+B**, klik izvan njega ga zatvara
+  - *Automatski* - izbornik se pojavi kad miš dođe do lijevog ruba ekrana i nestane kad ga napusti
+  - 📌 ponovno prikvači izbornik
+- Terminal i upravitelj datoteka automatski koriste oslobođeni prostor.
+
+### Ispravci
+- `install.sh` prihvaća `MTERM_VERSION=main` za instalaciju izravno s glavne grane.
+
 ## v1.1.0 (2026-11-18)
 
 ### Novo

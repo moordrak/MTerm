@@ -22,7 +22,11 @@
 
   <div id="app">
     <aside id="sidebar">
-      <div class="brand"><span class="logo">&gt;_</span> MTerm <span id="version" class="muted"></span></div>
+      <div class="brand"><span class="logo">&gt;_</span> MTerm <span id="version" class="muted"></span>
+        <span class="spacer"></span>
+        <button id="btnPin" class="icon-btn" title="Prikvači izbornik">📌</button>
+        <button id="btnHideSidebar" class="icon-btn" title="Sakrij izbornik (Ctrl+Shift+B)">«</button>
+      </div>
       <button id="btnNew" class="btn primary wide">+ Nova veza</button>
       <input id="search" class="search" placeholder="Traži veze...">
       <div id="connList" class="conn-list"></div>
@@ -114,6 +118,14 @@
         <label>Zamućenje pozadine <span class="val" data-for="blur"></span>
           <input type="range" name="blur" min="0" max="24" step="1"></label>
         <label>Akcentna boja<input type="color" name="accent"></label>
+
+        <label class="span2">Bočni izbornik
+          <select name="sidebar">
+            <option value="visible">Prikazan</option>
+            <option value="hidden">Skriven (otvara se gumbom ☰ ili Ctrl+Shift+B)</option>
+            <option value="auto">Automatski (pojavi se kad miš dođe do lijevog ruba)</option>
+          </select>
+        </label>
 
         <div class="section span2">Terminal</div>
         <label>Veličina fonta<input name="fontSize" type="number" min="8" max="32"></label>

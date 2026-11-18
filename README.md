@@ -22,6 +22,7 @@ Mogućnosti:
 - dinamičke pozadine: gradijent, aurora, Matrix kiša, svemir, mreža čestica, valovi, mjehurići, snijeg,
   retro mreža ili vlastita slika (URL)
 - prozirnost terminala i sučelja te zamućenje pozadine (stakleni efekt)
+- bočni izbornik se može sakriti (gumb ☰ ili Ctrl+Shift+B) ili automatski pojaviti uz lijevi rub ekrana
 - izvoz/uvoz veza u JSON (bez lozinki)
 - prijava lozinkom ili privatnim ključem (uz passphrase), keyboard-interactive
 - gumb **SFTP** u SSH tabu otvara datoteke istog servera

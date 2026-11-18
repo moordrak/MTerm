@@ -4,7 +4,7 @@
 #   curl -fsSL https://raw.githubusercontent.com/moordrak/MTerm/main/scripts/install.sh | bash
 #
 # Varijable okruženja (opcionalno):
-#   MTERM_VERSION   verzija (npr. v1.0.0), zadano: zadnji release
+#   MTERM_VERSION   verzija (npr. v1.2.0 ili main), zadano: zadnji release
 #   MTERM_PORT      port web sučelja (zadano 8080)
 #   MTERM_USER      korisnik za prijavu (zadano admin)
 #   MTERM_PASSWORD  lozinka za prijavu (zadano: nasumična, ispisuje se na kraju)
@@ -53,7 +53,9 @@ if [ -z "${MTERM_VERSION:-}" ]; then
   MTERM_VERSION="$(curl -fsSL "https://api.github.com/repos/${REPO}/releases/latest" 2>/dev/null \
     | grep -m1 '"tag_name"' | sed -E 's/.*"tag_name": *"([^"]+)".*/\1/' || true)"
 fi
-if [ -n "${MTERM_VERSION:-}" ]; then
+if [ "${MTERM_VERSION:-}" = "main" ]; then
+  URL="https://github.com/${REPO}/archive/refs/heads/main.tar.gz"
+elif [ -n "${MTERM_VERSION:-}" ]; then
   URL="https://github.com/${REPO}/archive/refs/tags/${MTERM_VERSION}.tar.gz"
 else
   MTERM_VERSION="main"

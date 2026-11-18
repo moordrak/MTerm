@@ -26,6 +26,7 @@ const DEFAULT_SETTINGS = {
   fontSize: 14, fontFamily: 'ui-monospace, "Cascadia Code", "Fira Code", Menlo, Consolas, monospace',
   theme: 'dark', syncUi: true, accent: '', cursorStyle: 'block', copyOnSelect: false,
   background: 'none', bgSpeed: 1, bgImage: '', termOpacity: 1, uiOpacity: 1, blur: 0,
+  sidebar: 'visible',
 };
 let connections = store.get('connections', []);
 let settings = { ...DEFAULT_SETTINGS, ...store.get('settings', {}) };
@@ -86,7 +87,30 @@ function termTheme() {
   return c;
 }
 
+// ---------- bočni izbornik ----------
+function applySidebar() {
+  const mode = ['visible', 'hidden', 'auto'].includes(settings.sidebar) ? settings.sidebar : 'visible';
+  document.body.classList.toggle('sb-hidden', mode === 'hidden');
+  document.body.classList.toggle('sb-auto', mode === 'auto');
+  if (mode === 'visible') $('#sidebar').classList.remove('open');
+}
+function setSidebarMode(mode) {
+  settings.sidebar = mode;
+  applySidebar();
+  saveSettings();
+}
+function toggleSidebar() {
+  if (window.matchMedia('(max-width: 760px)').matches || settings.sidebar !== 'visible') {
+    $('#sidebar').classList.toggle('open');
+    if ($('#sidebar').classList.contains('open')) setTimeout(() => $('#search').focus(), 50);
+    else active?.onShow?.();
+  } else {
+    setSidebarMode('hidden');
+  }
+}
+
 function applyAppearance() {
+  applySidebar();
   const t = currentTheme(), c = t.colors, root = document.documentElement.style;
   const acc = accentColor();
   const op = Number(settings.uiOpacity);
@@ -346,11 +370,11 @@ function settingsFormValues() {
     background: sform.background.value, bgSpeed: Number(sform.bgSpeed.value), bgImage: sform.bgImage.value.trim(),
     termOpacity: Number(sform.termOpacity.value), uiOpacity: Number(sform.uiOpacity.value), blur: Number(sform.blur.value),
     fontSize: Number(sform.fontSize.value) || 14, fontFamily: sform.fontFamily.value || DEFAULT_SETTINGS.fontFamily,
-    cursorStyle: sform.cursorStyle.value, copyOnSelect: sform.copyOnSelect.checked,
+    cursorStyle: sform.cursorStyle.value, copyOnSelect: sform.copyOnSelect.checked, sidebar: sform.sidebar.value,
   };
 }
 function fillSettingsForm(st) {
-  for (const k of ['theme', 'background', 'bgSpeed', 'bgImage', 'termOpacity', 'uiOpacity', 'blur', 'fontSize', 'fontFamily', 'cursorStyle']) sform[k].value = st[k];
+  for (const k of ['theme', 'background', 'bgSpeed', 'bgImage', 'termOpacity', 'uiOpacity', 'blur', 'fontSize', 'fontFamily', 'cursorStyle', 'sidebar']) sform[k].value = st[k];
   sform.syncUi.checked = st.syncUi;
   sform.copyOnSelect.checked = st.copyOnSelect;
   sform.accent.value = st.accent || (THEMES[st.theme] || THEMES.dark).accent;
@@ -528,6 +552,7 @@ class TerminalTab {
         return false;
       }
       if (e.type === 'keydown' && e.ctrlKey && e.shiftKey && e.code === 'KeyV') { this.paste(); return false; }
+      if (e.ctrlKey && e.shiftKey && e.code === 'KeyB') { if (e.type === 'keydown') toggleSidebar(); return false; }
       return true;
     });
     this.pane.querySelector('.toolbar').addEventListener('click', (e) => {
@@ -873,7 +898,31 @@ class FileTab {
   const menu = document.createElement('div');
   menu.className = 'tab menu-btn';
   menu.textContent = '☰';
-  menu.addEventListener('click', () => $('#sidebar').classList.toggle('open'));
+  menu.title = 'Izbornik (Ctrl+Shift+B)';
+  menu.addEventListener('click', (e) => { e.stopPropagation(); toggleSidebar(); });
+
+  // skrivanje / prikvačivanje izbornika
+  $('#btnHideSidebar').addEventListener('click', () => setSidebarMode('hidden'));
+  $('#btnPin').addEventListener('click', () => setSidebarMode('visible'));
+  document.addEventListener('keydown', (e) => {
+    if (e.ctrlKey && e.shiftKey && e.code === 'KeyB') { e.preventDefault(); toggleSidebar(); }
+  });
+  // klik izvan otvorenog izbornika ga zatvara
+  $('#main').addEventListener('mousedown', () => {
+    if ($('#sidebar').classList.contains('open')) $('#sidebar').classList.remove('open');
+  });
+  // automatski način: lijevi rub ekrana otvara izbornik, izlazak mišem ga zatvara
+  const edge = document.createElement('div');
+  edge.id = 'sbEdge';
+  document.body.appendChild(edge);
+  let closeTimer = null;
+  edge.addEventListener('mouseenter', () => { if (settings.sidebar === 'auto') $('#sidebar').classList.add('open'); });
+  $('#sidebar').addEventListener('mouseenter', () => clearTimeout(closeTimer));
+  $('#sidebar').addEventListener('mouseleave', () => {
+    if (settings.sidebar !== 'auto') return;
+    if (document.activeElement && $('#sidebar').contains(document.activeElement) && document.activeElement.tagName === 'INPUT') return;
+    closeTimer = setTimeout(() => $('#sidebar').classList.remove('open'), 350);
+  });
   $('#tabs').appendChild(menu);
 
   applyAppearance();
