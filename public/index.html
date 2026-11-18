@@ -97,23 +97,44 @@
 
   <!-- Postavke -->
   <div id="settingsDialog" class="overlay hidden">
-    <form id="settingsForm" class="card dialog small">
+    <form id="settingsForm" class="card dialog">
       <h2>Postavke</h2>
       <div class="grid">
+        <div class="section span2">Izgled</div>
+        <label>Tema<select name="theme"></select></label>
+        <label class="check"><input type="checkbox" name="syncUi"> Uskladi boje sučelja s temom</label>
+        <label>Pozadina<select name="background"></select></label>
+        <label>Brzina animacije <span class="val" data-for="bgSpeed"></span>
+          <input type="range" name="bgSpeed" min="0.1" max="3" step="0.1"></label>
+        <label class="span2 only-image">URL slike (https://... ili /putanja)<input name="bgImage" placeholder="https://images.example.com/pozadina.jpg"></label>
+        <label>Prozirnost terminala <span class="val" data-for="termOpacity"></span>
+          <input type="range" name="termOpacity" min="0.1" max="1" step="0.05"></label>
+        <label>Prozirnost sučelja <span class="val" data-for="uiOpacity"></span>
+          <input type="range" name="uiOpacity" min="0.1" max="1" step="0.05"></label>
+        <label>Zamućenje pozadine <span class="val" data-for="blur"></span>
+          <input type="range" name="blur" min="0" max="24" step="1"></label>
+        <label>Akcentna boja<input type="color" name="accent"></label>
+
+        <div class="section span2">Terminal</div>
         <label>Veličina fonta<input name="fontSize" type="number" min="8" max="32"></label>
-        <label>Tema terminala
-          <select name="theme">
-            <option value="dark">Tamna</option>
-            <option value="solarized">Solarized</option>
-            <option value="light">Svijetla</option>
+        <label>Kursor
+          <select name="cursorStyle">
+            <option value="block">Blok</option>
+            <option value="bar">Crta</option>
+            <option value="underline">Podcrtano</option>
           </select>
         </label>
         <label class="span2">Font<input name="fontFamily"></label>
         <label class="check span2"><input type="checkbox" name="copyOnSelect"> Kopiraj označeni tekst automatski</label>
+
+        <div class="section span2">Pohrana</div>
+        <label class="check span2"><input type="checkbox" name="serverStorage"> Spremi veze i postavke na server (dostupno sa svih uređaja)</label>
+        <div class="span2 muted small" id="storageInfo"></div>
       </div>
       <div class="actions">
+        <button type="button" class="btn" id="btnSettingsReset">Zadano</button>
         <span class="spacer"></span>
-        <button type="button" class="btn" id="btnSettingsCancel">Zatvori</button>
+        <button type="button" class="btn" id="btnSettingsCancel">Odustani</button>
         <button type="submit" class="btn primary">Spremi</button>
       </div>
     </form>
@@ -124,6 +145,8 @@
   <script src="vendor/xterm.js"></script>
   <script src="vendor/addon-fit.js"></script>
   <script src="vendor/addon-web-links.js"></script>
+  <script src="themes.js"></script>
+  <script src="backgrounds.js"></script>
   <script src="app.js"></script>
 </body>
 </html>

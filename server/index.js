@@ -7,6 +7,7 @@ import { WebSocketServer } from 'ws';
 import * as auth from './auth.js';
 import { handleSshSocket } from './ssh.js';
 import { handleFilesApi, readJson, closeAll } from './files.js';
+import { initStorage, storageEnabled, loadStore, saveStore } from './storage.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, '..');
@@ -15,6 +16,7 @@ const NM = path.join(ROOT, 'node_modules');
 const PORT = Number(process.env.PORT || process.env.MTERM_PORT || 8080);
 const HOST = process.env.HOST || '0.0.0.0';
 const pkg = JSON.parse(fs.readFileSync(path.join(ROOT, 'package.json'), 'utf8'));
+initStorage(ROOT);
 
 const VENDOR = {
   '/vendor/xterm.js': path.join(NM, '@xterm/xterm/lib/xterm.js'),
@@ -79,6 +81,7 @@ const server = http.createServer(async (req, res) => {
       version: pkg.version,
       authRequired: auth.authEnabled,
       authenticated: auth.isAuthenticated(req),
+      serverStorage: storageEnabled,
     });
   }
   if (p === '/api/login' && req.method === 'POST') {
@@ -103,6 +106,19 @@ const server = http.createServer(async (req, res) => {
   if (p.startsWith('/api/')) {
     if (!auth.isAuthenticated(req)) return sendJson(res, 401, { error: 'Potrebna je prijava.' });
     if (p.startsWith('/api/fs/')) return handleFilesApi(req, res, url);
+    if (p === '/api/store') {
+      if (!storageEnabled) return sendJson(res, 404, { error: 'Pohrana na serveru je isključena.' });
+      try {
+        if (req.method === 'GET') return sendJson(res, 200, loadStore());
+        if (req.method === 'PUT') {
+          const body = await readJson(req, 10 * 1024 * 1024);
+          return sendJson(res, 200, { ok: true, updatedAt: saveStore(body) });
+        }
+        return sendJson(res, 405, { error: 'Metoda nije dopuštena.' });
+      } catch (e) {
+        return sendJson(res, 500, { error: e.message });
+      }
+    }
     return sendJson(res, 404, { error: 'Nepoznat API.' });
   }
 

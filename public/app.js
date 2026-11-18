@@ -15,25 +15,114 @@ const PROTO = {
   webdavs: { label: 'WebDAVS', port: 443, kind: 'files' },
 };
 
-const THEMES = {
-  dark: { background: '#000000', foreground: '#e5e7eb', cursor: '#22d3ee', selectionBackground: '#164e63' },
-  solarized: {
-    background: '#002b36', foreground: '#839496', cursor: '#93a1a1', selectionBackground: '#073642',
-    black: '#073642', red: '#dc322f', green: '#859900', yellow: '#b58900', blue: '#268bd2', magenta: '#d33682', cyan: '#2aa198', white: '#eee8d5',
-    brightBlack: '#002b36', brightRed: '#cb4b16', brightGreen: '#586e75', brightYellow: '#657b83', brightBlue: '#839496', brightMagenta: '#6c71c4', brightCyan: '#93a1a1', brightWhite: '#fdf6e3',
-  },
-  light: { background: '#fafafa', foreground: '#1f2937', cursor: '#0891b2', selectionBackground: '#bae6fd',
-    black: '#1f2937', white: '#9ca3af', brightWhite: '#6b7280', yellow: '#a16207', brightYellow: '#854d0e' },
-};
+const THEMES = window.MTERM_THEMES;
 
 // ---------- spremanje ----------
 const store = {
   get(k, d) { try { return JSON.parse(localStorage.getItem('mterm.' + k)) ?? d; } catch { return d; } },
   set(k, v) { try { localStorage.setItem('mterm.' + k, JSON.stringify(v)); } catch {} },
 };
+const DEFAULT_SETTINGS = {
+  fontSize: 14, fontFamily: 'ui-monospace, "Cascadia Code", "Fira Code", Menlo, Consolas, monospace',
+  theme: 'dark', syncUi: true, accent: '', cursorStyle: 'block', copyOnSelect: false,
+  background: 'none', bgSpeed: 1, bgImage: '', termOpacity: 1, uiOpacity: 1, blur: 0,
+};
 let connections = store.get('connections', []);
-let settings = Object.assign({ fontSize: 14, fontFamily: 'ui-monospace, "Cascadia Code", "Fira Code", Menlo, Consolas, monospace', theme: 'dark', copyOnSelect: false }, store.get('settings', {}));
-const saveConnections = () => store.set('connections', connections);
+let settings = { ...DEFAULT_SETTINGS, ...store.get('settings', {}) };
+if (!THEMES[settings.theme]) settings.theme = 'dark';
+// način pohrane je vezan uz preglednik: 'local' ili 'server'
+let storageMode = store.get('storageMode', 'local');
+let serverAvailable = false;
+
+let serverSaveTimer = null;
+function scheduleServerSave() {
+  if (storageMode !== 'server' || !serverAvailable) return;
+  clearTimeout(serverSaveTimer);
+  serverSaveTimer = setTimeout(pushToServer, 400);
+}
+async function pushToServer() {
+  try {
+    await api('api/store', { method: 'PUT', body: JSON.stringify({ connections, settings }) });
+  } catch (e) { toast('Spremanje na server nije uspjelo: ' + e.message, true); }
+}
+async function pullFromServer() {
+  const d = await api('api/store');
+  connections = Array.isArray(d.connections) ? d.connections : [];
+  if (d.settings) settings = { ...DEFAULT_SETTINGS, ...d.settings };
+  if (!THEMES[settings.theme]) settings.theme = 'dark';
+  return d;
+}
+function localCopy(list) { // u preglednik se lozinke spremaju samo ako je to odabrano
+  return list.map((c) => (c.savePassword ? c : (({ password, privateKey, passphrase, ...r }) => r)(c)));
+}
+const saveConnections = () => {
+  if (storageMode === 'server') scheduleServerSave();
+  else store.set('connections', localCopy(connections));
+};
+const saveSettings = () => {
+  store.set('settings', settings);
+  scheduleServerSave();
+};
+
+// ---------- izgled: teme, prozirnost, pozadine ----------
+function hexRgb(h) {
+  h = String(h || '#000').replace('#', '');
+  if (h.length === 3) h = h.split('').map((c) => c + c).join('');
+  const n = parseInt(h.slice(0, 6), 16) || 0;
+  return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
+}
+const toHex = (rgb) => '#' + rgb.map((v) => Math.round(Math.max(0, Math.min(255, v))).toString(16).padStart(2, '0')).join('');
+const mix = (a, b, t) => { const x = hexRgb(a), y = hexRgb(b); return toHex(x.map((v, i) => v + (y[i] - v) * t)); };
+const rgbaOf = (h, a) => { const [r, g, b] = hexRgb(h); return `rgba(${r},${g},${b},${a})`; };
+const luminance = (h) => { const [r, g, b] = hexRgb(h); return (0.299 * r + 0.587 * g + 0.114 * b) / 255; };
+
+function currentTheme() { return THEMES[settings.theme] || THEMES.dark; }
+function accentColor() { return settings.accent || currentTheme().accent; }
+
+function termTheme() {
+  const c = { ...currentTheme().colors };
+  // pozadinu daje okvir (.term-wrap) pa terminal mora biti potpuno proziran
+  if (settings.termOpacity < 1) c.background = 'rgba(0,0,0,0)';
+  return c;
+}
+
+function applyAppearance() {
+  const t = currentTheme(), c = t.colors, root = document.documentElement.style;
+  const acc = accentColor();
+  const op = Number(settings.uiOpacity);
+  let ui;
+  if (settings.syncUi) {
+    const bg = c.background, fg = c.foreground, light = luminance(bg) > 0.5;
+    ui = {
+      bg, panel: mix(bg, fg, light ? 0.05 : 0.06), panel2: mix(bg, fg, light ? 0.1 : 0.13), border: mix(bg, fg, 0.2),
+      text: fg, muted: mix(fg, bg, 0.4), line: mix(bg, fg, 0.07), hover: mix(bg, fg, 0.09), light,
+    };
+  } else {
+    ui = { bg: '#0b1020', panel: '#111827', panel2: '#1f2937', border: '#2b3546', text: '#e5e7eb', muted: '#8b95a7',
+      line: '#161e2e', hover: '#141c2c', light: false };
+  }
+  root.setProperty('--bg', ui.bg);
+  root.setProperty('--panel', ui.panel);
+  root.setProperty('--panel2', ui.panel2);
+  root.setProperty('--border', ui.border);
+  root.setProperty('--text', ui.text);
+  root.setProperty('--muted', ui.muted);
+  root.setProperty('--line', ui.line);
+  root.setProperty('--hover', ui.hover);
+  root.setProperty('--accent', acc);
+  root.setProperty('--accent2', mix(acc, ui.light ? '#000000' : '#000000', 0.25));
+  root.setProperty('--on-accent', luminance(mix(acc, '#000000', 0.25)) > 0.6 ? '#000' : '#fff');
+  root.setProperty('--selbg', rgbaOf(acc, 0.25));
+  root.setProperty('--bg-a', rgbaOf(ui.bg, op));
+  root.setProperty('--panel-a', rgbaOf(ui.panel, op));
+  root.setProperty('--term-a', rgbaOf(c.background, settings.termOpacity));
+  root.setProperty('--blur', (Number(settings.blur) || 0) + 'px');
+  root.setProperty('color-scheme', ui.light ? 'light' : 'dark');
+  document.body.style.background = ui.bg;
+  const palette = [acc, c.magenta, c.blue, c.cyan, c.green, c.yellow].filter(Boolean);
+  window.MTermBackground?.set({ name: settings.background, speed: Number(settings.bgSpeed), image: settings.bgImage,
+    accent: acc, bg: ui.bg, fg: c.foreground, palette });
+}
 
 // ---------- poruke ----------
 function toast(msg, isErr = false, ms = 4500) {
@@ -67,6 +156,8 @@ $('#loginForm').addEventListener('submit', async (e) => {
     if (!res.ok) throw new Error(d.error || 'Prijava nije uspjela.');
     f.password.value = '';
     $('#login').classList.add('hidden');
+    window.__afterLogin?.();
+    window.__afterLogin = null;
   } catch (err) { $('#loginError').textContent = err.message; }
 });
 $('#btnLogout').addEventListener('click', async () => {
@@ -231,24 +322,122 @@ $('#importFile').addEventListener('change', async (e) => {
 
 // ---------- postavke ----------
 const sdlg = $('#settingsDialog'), sform = $('#settingsForm');
+let settingsBackup = null;
+{
+  const sel = sform.theme;
+  const dark = [], light = [];
+  for (const [k, t] of Object.entries(THEMES)) (luminance(t.colors.background) > 0.5 ? light : dark).push([k, t]);
+  for (const [label, list] of [['Tamne', dark], ['Svijetle', light]]) {
+    const g = document.createElement('optgroup');
+    g.label = label;
+    for (const [k, t] of list) g.appendChild(new Option(t.name, k));
+    sel.appendChild(g);
+  }
+  const bg = sform.background;
+  bg.appendChild(new Option('Bez pozadine', 'none'));
+  for (const [k, label] of Object.entries(window.MTermBackground?.effects || {})) bg.appendChild(new Option(label, k));
+  bg.appendChild(new Option('Slika (URL)', 'image'));
+}
+const fmtVal = { bgSpeed: (v) => Number(v).toFixed(1) + '×', termOpacity: (v) => Math.round(v * 100) + '%',
+  uiOpacity: (v) => Math.round(v * 100) + '%', blur: (v) => v + ' px' };
+function settingsFormValues() {
+  return {
+    theme: sform.theme.value, syncUi: sform.syncUi.checked, accent: sform.accent.dataset.touched ? sform.accent.value : settings.accent,
+    background: sform.background.value, bgSpeed: Number(sform.bgSpeed.value), bgImage: sform.bgImage.value.trim(),
+    termOpacity: Number(sform.termOpacity.value), uiOpacity: Number(sform.uiOpacity.value), blur: Number(sform.blur.value),
+    fontSize: Number(sform.fontSize.value) || 14, fontFamily: sform.fontFamily.value || DEFAULT_SETTINGS.fontFamily,
+    cursorStyle: sform.cursorStyle.value, copyOnSelect: sform.copyOnSelect.checked,
+  };
+}
+function fillSettingsForm(st) {
+  for (const k of ['theme', 'background', 'bgSpeed', 'bgImage', 'termOpacity', 'uiOpacity', 'blur', 'fontSize', 'fontFamily', 'cursorStyle']) sform[k].value = st[k];
+  sform.syncUi.checked = st.syncUi;
+  sform.copyOnSelect.checked = st.copyOnSelect;
+  sform.accent.value = st.accent || (THEMES[st.theme] || THEMES.dark).accent;
+  delete sform.accent.dataset.touched;
+  sform.serverStorage.checked = storageMode === 'server';
+  sform.serverStorage.disabled = !serverAvailable;
+  $('#storageInfo').textContent = serverAvailable
+    ? (storageMode === 'server' ? 'Veze i postavke spremaju se na MTerm server. Lozinke su na serveru šifrirane (AES-256-GCM).'
+      : 'Veze se trenutno spremaju samo u ovom pregledniku.')
+    : 'Pohrana na serveru je isključena (MTERM_SERVER_STORAGE=false).';
+  updateSettingsLabels();
+}
+function updateSettingsLabels() {
+  sform.querySelectorAll('.val').forEach((el) => { el.textContent = fmtVal[el.dataset.for](sform[el.dataset.for].value); });
+  sform.querySelectorAll('.only-image').forEach((el) => el.classList.toggle('hidden', sform.background.value !== 'image'));
+}
+function previewSettings() {
+  settings = { ...settings, ...settingsFormValues() };
+  applyAppearance();
+  for (const t of tabs) t.applySettings?.();
+}
+sform.addEventListener('input', (e) => {
+  if (e.target.name === 'accent') e.target.dataset.touched = '1';
+  if (e.target.name === 'theme' && !sform.accent.dataset.touched) sform.accent.value = THEMES[sform.theme.value].accent;
+  if (e.target.name === 'serverStorage') return;
+  updateSettingsLabels();
+  previewSettings();
+});
 $('#btnSettings').addEventListener('click', () => {
-  sform.fontSize.value = settings.fontSize;
-  sform.fontFamily.value = settings.fontFamily;
-  sform.theme.value = settings.theme;
-  sform.copyOnSelect.checked = settings.copyOnSelect;
+  settingsBackup = { ...settings };
+  fillSettingsForm(settings);
   sdlg.classList.remove('hidden');
 });
-$('#btnSettingsCancel').addEventListener('click', () => sdlg.classList.add('hidden'));
-sform.addEventListener('submit', (e) => {
+function closeSettings(restore) {
+  if (restore && settingsBackup) {
+    settings = settingsBackup;
+    applyAppearance();
+    for (const t of tabs) t.applySettings?.();
+  }
+  settingsBackup = null;
+  sdlg.classList.add('hidden');
+}
+$('#btnSettingsCancel').addEventListener('click', () => closeSettings(true));
+$('#btnSettingsReset').addEventListener('click', () => {
+  fillSettingsForm({ ...DEFAULT_SETTINGS });
+  sform.accent.dataset.touched = '';
+  delete sform.accent.dataset.touched;
+  previewSettings();
+  settings.accent = '';
+});
+sform.addEventListener('submit', async (e) => {
   e.preventDefault();
-  settings = { fontSize: Number(sform.fontSize.value) || 14, fontFamily: sform.fontFamily.value || settings.fontFamily,
-    theme: sform.theme.value, copyOnSelect: sform.copyOnSelect.checked };
-  store.set('settings', settings);
+  settings = { ...settings, ...settingsFormValues() };
+  const wantServer = sform.serverStorage.checked && serverAvailable;
+  if (wantServer && storageMode !== 'server') await switchToServer();
+  else if (!wantServer && storageMode === 'server') switchToLocal();
+  saveSettings();
+  applyAppearance();
   for (const t of tabs) t.applySettings?.();
+  settingsBackup = null;
   sdlg.classList.add('hidden');
 });
+
+async function switchToServer() {
+  try {
+    const local = connections;
+    const remote = (await api('api/store')).connections || [];
+    // spajanje: veze s istim ID-jem iz preglednika imaju prednost
+    const byId = new Map(remote.map((c) => [c.id, c]));
+    for (const c of local) byId.set(c.id || uid(), { ...byId.get(c.id), ...c });
+    connections = [...byId.values()];
+    storageMode = 'server';
+    store.set('storageMode', storageMode);
+    await pushToServer();
+    store.set('connections', []); // lokalna kopija više nije potrebna
+    renderConnections();
+    toast(`Veze su sada spremljene na serveru (${connections.length}).`);
+  } catch (e) { toast('Prebacivanje na server nije uspjelo: ' + e.message, true); }
+}
+function switchToLocal() {
+  storageMode = 'local';
+  store.set('storageMode', storageMode);
+  store.set('connections', localCopy(connections));
+  toast('Veze se sada spremaju u ovom pregledniku. Kopija na serveru je zadržana.');
+}
 document.addEventListener('keydown', (e) => {
-  if (e.key === 'Escape') { dlg.classList.add('hidden'); sdlg.classList.add('hidden'); }
+  if (e.key === 'Escape') { dlg.classList.add('hidden'); if (!sdlg.classList.contains('hidden')) closeSettings(true); }
 });
 
 // ---------- tabovi ----------
@@ -318,7 +507,8 @@ class TerminalTab {
       <div class="term-wrap"></div>`;
     this.statusEl = $('.status', this.pane);
     this.term = new Terminal({
-      cursorBlink: true, fontSize: settings.fontSize, fontFamily: settings.fontFamily, theme: THEMES[settings.theme],
+      cursorBlink: true, fontSize: settings.fontSize, fontFamily: settings.fontFamily, theme: termTheme(),
+      cursorStyle: settings.cursorStyle, allowTransparency: true,
       scrollback: 10000, allowProposedApi: true, macOptionIsMeta: true,
     });
     this.fit = new FitAddon.FitAddon();
@@ -355,7 +545,8 @@ class TerminalTab {
     setTimeout(() => this.connect(), 0);
   }
   applySettings() {
-    Object.assign(this.term.options, { fontSize: settings.fontSize, fontFamily: settings.fontFamily, theme: THEMES[settings.theme] });
+    Object.assign(this.term.options, { fontSize: settings.fontSize, fontFamily: settings.fontFamily, theme: termTheme(),
+      cursorStyle: settings.cursorStyle });
     this.doFit();
   }
   doFit() {
@@ -685,11 +876,24 @@ class FileTab {
   menu.addEventListener('click', () => $('#sidebar').classList.toggle('open'));
   $('#tabs').appendChild(menu);
 
+  applyAppearance();
   renderConnections();
+  let me = null;
   try {
-    const me = await fetch('api/me').then((r) => r.json());
+    me = await fetch('api/me').then((r) => r.json());
     $('#version').textContent = 'v' + me.version;
+    serverAvailable = !!me.serverStorage;
     if (me.authRequired) $('#btnLogout').classList.remove('hidden');
-    if (me.authRequired && !me.authenticated) showLogin();
-  } catch { toast('Server MTerm nije dostupan.', true); }
+  } catch { toast('Server MTerm nije dostupan.', true); return; }
+  if (me.authRequired && !me.authenticated) {
+    showLogin();
+    await new Promise((r) => { window.__afterLogin = r; });
+  }
+  if (storageMode === 'server') {
+    if (!serverAvailable) { storageMode = 'local'; toast('Pohrana na serveru nije dostupna - koriste se lokalne veze.', true); }
+    else {
+      try { await pullFromServer(); store.set('settings', settings); applyAppearance(); renderConnections(); }
+      catch (e) { toast('Učitavanje veza sa servera nije uspjelo: ' + e.message, true); }
+    }
+  }
 })();

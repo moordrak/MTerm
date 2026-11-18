@@ -6,7 +6,8 @@ LABEL org.opencontainers.image.title="MTerm" \
       org.opencontainers.image.licenses="MIT"
 
 ENV NODE_ENV=production \
-    PORT=8080
+    PORT=8080 \
+    MTERM_DATA_DIR=/data
 
 WORKDIR /app
 COPY package*.json ./
@@ -14,6 +15,8 @@ RUN npm install --omit=dev --no-audit --no-fund && npm cache clean --force
 
 COPY server ./server
 COPY public ./public
+RUN mkdir -p /data && chown node:node /data
+VOLUME /data
 
 USER node
 EXPOSE 8080

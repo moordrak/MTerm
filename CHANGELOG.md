@@ -1,5 +1,23 @@
 # Promjene
 
+## v1.1.0 (2026-11-18)
+
+### Novo
+- **Spremanje veza i postavki na server** (Postavke → Pohrana): iste veze na svim uređajima.
+  Lozinke i ključevi se na serveru šifriraju (AES-256-GCM), a spremaju se samo ako je uključeno „Spremi lozinku/ključ”.
+  Postojeće veze iz preglednika automatski se prenose na server.
+- **20 tema terminala**: Dracula, Nord, Monokai, Gruvbox, One Dark, Tokyo Night, Catppuccin Mocha, Rosé Pine,
+  Synthwave '84, GitHub (tamna/svijetla), Solarized (tamna/svijetla), Ubuntu, PowerShell, Matrix, Jantar i druge.
+  Sučelje se automatski usklađuje s bojama teme, a akcentnu boju možete sami odabrati.
+- **Dinamičke pozadine**: gradijent, aurora, Matrix kiša, svemir, mreža čestica, valovi, mjehurići, snijeg,
+  retro mreža i vlastita slika (URL) s polaganim pomicanjem. Brzina animacije je podesiva.
+- **Prozirnost** terminala i sučelja te zamućenje pozadine (stakleni efekt).
+- Izbor oblika kursora, gumb „Zadano” i trenutni pregled promjena u postavkama.
+
+### Instalacija / nadogradnja
+- Docker: podaci u volumenu `/data` (`-v mterm-data:/data`).
+- LXC/systemd: podaci u `/var/lib/mterm`; nadogradnja s `pct exec <CTID> -- mterm-update`.
+
 ## v1.0.0 (2026-11-18)
 
 Prvo izdanje: web terminal i upravitelj datoteka u pregledniku.

@@ -77,6 +77,14 @@ const run = async (name, fn) => {
 };
 
 await run('health', async () => { const h = await api('/api/health'); if (!h.ok) throw new Error('health'); });
+await run('pohrana na serveru', async () => {
+  await api('/api/store', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({
+    connections: [{ id: 'x', protocol: 'ssh', host: 'h', password: 'tajno', savePassword: true },
+      { id: 'y', protocol: 'ftp', host: 'h2', password: 'ne', savePassword: false }], settings: { theme: 'nord' } }) });
+  const d = await api('/api/store');
+  if (d.connections.length !== 2 || d.connections[0].password !== 'tajno' || d.connections[1].password) throw new Error(JSON.stringify(d));
+  if (d.settings.theme !== 'nord') throw new Error('postavke');
+});
 await run('ssh terminal', testSsh);
 for (const t of targets) await run(t.protocol, () => testFiles(t));
 console.log(failed ? `\n${failed} test(ova) nije prošlo.` : '\nSvi testovi su prošli.');

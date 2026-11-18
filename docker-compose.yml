@@ -10,3 +10,9 @@ services:
       - MTERM_PASSWORD=promijeni-me   # obavezno promijenite!
       # - MTERM_SESSION_HOURS=12
       # - MTERM_IDLE_MINUTES=30
+      # - MTERM_SERVER_STORAGE=false   # isključi spremanje veza na server
+    volumes:
+      - mterm-data:/data   # spremljene veze, postavke i ključ za šifriranje
+
+volumes:
+  mterm-data:

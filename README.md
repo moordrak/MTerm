@@ -15,7 +15,13 @@ a mali Node.js poslužitelj radi kao most prema udaljenim serverima.
 Mogućnosti:
 
 - više tabova istovremeno (terminali i upravitelji datoteka)
-- spremljene veze s grupama i pretraživanjem (u pregledniku, lozinke samo ako to izričito odaberete)
+- spremljene veze s grupama i pretraživanjem: u pregledniku **ili na serveru** (dostupne sa svih uređaja,
+  lozinke šifrirane AES-256-GCM)
+- 20 tema terminala (Dracula, Nord, Gruvbox, Tokyo Night, Catppuccin, Synthwave, Matrix, Jantar...),
+  sučelje se automatski usklađuje s temom, vlastita akcentna boja
+- dinamičke pozadine: gradijent, aurora, Matrix kiša, svemir, mreža čestica, valovi, mjehurići, snijeg,
+  retro mreža ili vlastita slika (URL)
+- prozirnost terminala i sučelja te zamućenje pozadine (stakleni efekt)
 - izvoz/uvoz veza u JSON (bez lozinki)
 - prijava lozinkom ili privatnim ključem (uz passphrase), keyboard-interactive
 - gumb **SFTP** u SSH tabu otvara datoteke istog servera
@@ -49,7 +55,7 @@ Nadogradnja: `pct exec <CTID> -- mterm-update`
 
 ```bash
 docker run -d --name mterm --restart unless-stopped -p 8080:8080 \
-  -e MTERM_PASSWORD='promijeni-me' ghcr.io/moordrak/mterm:latest
+  -v mterm-data:/data -e MTERM_PASSWORD='promijeni-me' ghcr.io/moordrak/mterm:latest
 ```
 
 ili `docker compose up -d` s priloženim [`docker-compose.yml`](docker-compose.yml).
@@ -80,6 +86,9 @@ Otvorite `http://<server>:8080`.
 | `MTERM_PASSWORD` | *(prazno)* | lozinka; ako nije postavljena, MTerm **nije zaštićen** |
 | `MTERM_SESSION_HOURS` | `12` | trajanje prijave |
 | `MTERM_IDLE_MINUTES` | `30` | nakon koliko minuta neaktivnosti se zatvara sesija datoteka |
+| `MTERM_SERVER_STORAGE` | `true` | dopušta spremanje veza i postavki na server |
+| `MTERM_DATA_DIR` | `./data` (Docker: `/data`, LXC: `/var/lib/mterm`) | mapa za spremljene veze |
+| `MTERM_SECRET` | *(automatski `secret.key`)* | ključ za šifriranje lozinaka spremljenih na serveru |
 
 Kod LXC/systemd instalacije postavke su u `/etc/mterm/mterm.env` (`systemctl restart mterm` nakon izmjene).
 
@@ -107,8 +116,10 @@ Za kopiranje/lijepljenje iz međuspremnika preglednik zahtijeva HTTPS.
 
 - MTerm može otvoriti vezu prema bilo kojem hostu koji vidi server, pa ga **uvijek** zaštitite lozinkom
   (`MTERM_PASSWORD`) i ne izlažite ga internetu bez HTTPS-a/VPN-a.
-- Lozinke za udaljene servere ne spremaju se na server. U pregledniku (localStorage) se spremaju samo ako
-  uključite "Spremi lozinku/ključ".
+- Lozinke za udaljene servere spremaju se samo ako uključite "Spremi lozinku/ključ" - u pregledniku
+  (localStorage) ili, uz pohranu na serveru, u `store.json` šifrirane AES-256-GCM. Ključ je u `secret.key`
+  u istoj mapi (ili `MTERM_SECRET`) - napravite sigurnosnu kopiju cijele mape, bez ključa se lozinke ne mogu pročitati.
+- Pohrana na serveru vidljiva je svakome tko se može prijaviti u MTerm, pa je bez `MTERM_PASSWORD` ne koristite.
 - Ključ SSH hosta se prihvaća automatski, a njegov SHA256 otisak se prikazuje u statusnoj traci/obavijesti.
 
 ## Razvoj
@@ -123,10 +134,11 @@ node test/integration.mjs   # integracijski testovi (vidi .github/workflows/ci.y
 Struktura:
 
 ```
-public/            HTML sučelje (index.html, app.js, style.css)
+public/            HTML sučelje (index.html, app.js, style.css, themes.js, backgrounds.js)
 server/index.js    HTTP + WebSocket server, statičke datoteke, prijava
 server/ssh.js      SSH terminal preko WebSocketa
 server/files.js    API za datoteke i sesije
+server/storage.js  spremanje veza i postavki na server (šifrirane lozinke)
 server/adapters/   sftp.js, scp.js, ftp.js (FTP/FTPS), webdav.js
 scripts/           install.sh, proxmox-lxc.sh
 ```

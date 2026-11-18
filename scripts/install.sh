@@ -110,8 +110,11 @@ Type=simple
 User=mterm
 Group=mterm
 WorkingDirectory=${MTERM_DIR}
-EnvironmentFile=${ENV_FILE}
 Environment=NODE_ENV=production
+Environment=MTERM_DATA_DIR=/var/lib/mterm
+EnvironmentFile=${ENV_FILE}
+StateDirectory=mterm
+StateDirectoryMode=0700
 ExecStart=$(command -v node) ${MTERM_DIR}/server/index.js
 Restart=on-failure
 RestartSec=3
@@ -139,4 +142,5 @@ if [ -n "$GENERATED_PASSWORD" ]; then
   echo -e "   Korisnik: ${MTERM_USER:-admin}"
   echo -e "   Lozinka:  ${c_ok}${GENERATED_PASSWORD}${c_off}  (spremljeno u ${ENV_FILE})"
 fi
+echo "   Podaci (spremljene veze): /var/lib/mterm"
 echo "   Nadogradnja: mterm-update"
