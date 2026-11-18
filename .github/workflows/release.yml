@@ -1,0 +1,29 @@
+name: Release prilozi
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: write
+
+jobs:
+  assets:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Paket s ovisnostima (za instalaciju bez npm-a)
+        run: |
+          npm install --omit=dev --no-audit --no-fund
+          mkdir -p dist/mterm
+          cp -r server public node_modules package.json README.md LICENSE dist/mterm/
+          tar -C dist -czf "mterm-${GITHUB_REF_NAME}.tar.gz" mterm
+      - name: Prilaganje datoteka releaseu
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release upload "$GITHUB_REF_NAME" --clobber \
+            scripts/proxmox-lxc.sh scripts/install.sh "mterm-${GITHUB_REF_NAME}.tar.gz"
