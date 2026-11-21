@@ -1,5 +1,25 @@
 # Promjene
 
+## v1.6.0 (2026-11-21)
+
+### Novo
+- **Veze ostaju žive kad preglednik nije u fokusu**:
+  - server šalje WebSocket ping svakih 25 s, pa ni proxy (nginx) ni preglednik ne prekidaju neaktivnu vezu
+  - **SSH sesija živi na serveru neovisno o pregledniku**: nakon prekida (tab u pozadini, spavanje računala,
+    promjena mreže) terminal se sam ponovno prikači na istu sesiju i dobije sav izlaz koji je propustio
+  - sesija se na serveru čuva 15 minuta nakon prekida (podesivo: 0 / 5 / 15 / 60 / 240 min)
+  - nakon **osvježavanja stranice** otvoreni tabovi se vraćaju, a terminali nastavljaju istu sesiju
+  - automatsko ponovno spajanje s rastućim razmakom, odmah pri povratku u fokus ili kad mreža proradi
+  - sesije datoteka: otkucaj svake minute dok je tab otvoren, FTP NOOP svake minute, tiho ponovno spajanje
+    ako je veza prema serveru pukla
+  - Web Lock dok postoje aktivne veze (Chrome/Edge tada rjeđe zamrzavaju tab u pozadini)
+  - opcionalno upozorenje prije zatvaranja stranice dok postoje aktivne veze
+- Postavke → **Veze** za sve navedeno.
+
+### Konfiguracija
+- `MTERM_SSH_KEEP_MAX` (zadano 240) - najdulje čuvanje SSH sesije nakon prekida, u minutama
+- `MTERM_WS_PING_SECONDS` (zadano 25) - razmak WebSocket pinga
+
 ## v1.5.0 (2026-11-21)
 
 ### Novo

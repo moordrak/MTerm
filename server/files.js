@@ -174,6 +174,14 @@ export async function handleFilesApi(req, res, url) {
     const a = s.adapter;
     const p = normPath(url.searchParams.get('path'));
 
+    // održavanje sesije dok je tab otvoren (i u pozadini)
+    if (action === 'ping') return json(res, 200, { ok: true });
+    // veza prema serveru je pukla (timeout, restart servera) - tiho se spoji ponovno
+    if (action !== 'close' && a.isClosed?.()) {
+      try { await a.reconnect(); }
+      catch (e) { return json(res, 502, { error: 'Ponovno spajanje nije uspjelo: ' + errMsg(e) }); }
+    }
+
     if (action === 'close' && req.method === 'POST') {
       sessions.delete(id);
       await a.close();
@@ -251,9 +259,12 @@ export async function handleFilesApi(req, res, url) {
 setInterval(() => {
   const limit = Date.now() - IDLE_MINUTES * 60 * 1000;
   for (const [id, s] of sessions) {
-    if (s.last < limit || s.adapter.closed) {
+    if (s.last < limit) {
       sessions.delete(id);
       s.adapter.close().catch(() => {});
+    } else if (s.adapter.keepalive && !s.adapter.isClosed?.()) {
+      // FTP: NOOP svake minute da server ne prekine neaktivnu vezu
+      s.adapter.keepalive().catch(() => {});
     }
   }
 }, 60 * 1000).unref();

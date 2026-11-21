@@ -139,6 +139,23 @@
         <label class="span2">Font<input name="fontFamily"></label>
         <label class="check span2"><input type="checkbox" name="copyOnSelect"> Kopiraj označeni tekst automatski</label>
 
+        <div class="section span2">Veze</div>
+        <label class="check span2"><input type="checkbox" name="keepAlive"> Održavaj veze aktivnima dok je preglednik u pozadini</label>
+        <label class="check span2"><input type="checkbox" name="autoReconnect"> Automatski ponovno spoji prekinute veze</label>
+        <label class="span2">Zadrži SSH sesiju na serveru nakon prekida veze
+          <select name="sshKeep">
+            <option value="0">Ne - zatvori odmah</option>
+            <option value="5">5 minuta</option>
+            <option value="15">15 minuta</option>
+            <option value="60">1 sat</option>
+            <option value="240">4 sata</option>
+          </select>
+        </label>
+        <label class="check span2"><input type="checkbox" name="restoreTabs"> Vrati otvorene tabove nakon osvježavanja stranice</label>
+        <label class="check span2"><input type="checkbox" name="warnClose"> Upozori prije zatvaranja stranice dok postoje aktivne veze</label>
+        <div class="span2 muted small">SSH sesija ostaje živa na serveru i kad se preglednik odspoji (tab u pozadini, spavanje računala,
+          osvježavanje stranice) pa se terminal nakon povratka nastavlja točno gdje je stao. Zatvaranje taba (×) sesiju gasi odmah.</div>
+
         <div class="section span2">Pohrana</div>
         <label class="check span2"><input type="checkbox" name="serverStorage"> Spremi veze i postavke na server (dostupno sa svih uređaja)</label>
         <div class="span2 muted small" id="storageInfo"></div>

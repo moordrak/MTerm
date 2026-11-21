@@ -34,6 +34,15 @@ export class FtpAdapter {
     try { await this.client.send('OPTS UTF8 ON'); } catch {}
   }
 
+  isClosed() { return !this.client || this.client.closed; }
+  // NOOP sprječava da FTP server zatvori neaktivnu vezu
+  keepalive() { return this.run((c) => c.send('NOOP')); }
+  async reconnect() {
+    try { this.client?.close(); } catch {}
+    this.queue = Promise.resolve();
+    await this.connect();
+  }
+
   home() { return this.run((c) => c.pwd()); }
 
   list(dir) {

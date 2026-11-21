@@ -5,7 +5,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { WebSocketServer } from 'ws';
 import * as auth from './auth.js';
-import { handleSshSocket } from './ssh.js';
+import { handleSshSocket, closeAllSsh } from './ssh.js';
 import { handleFilesApi, readJson, closeAll } from './files.js';
 import { initStorage, storageEnabled, loadStore, saveStore } from './storage.js';
 
@@ -82,6 +82,7 @@ const server = http.createServer(async (req, res) => {
       authRequired: auth.authEnabled,
       authenticated: auth.isAuthenticated(req),
       serverStorage: storageEnabled,
+      sshKeepMax: Number(process.env.MTERM_SSH_KEEP_MAX ?? 240),
     });
   }
   if (p === '/api/login' && req.method === 'POST') {
@@ -137,8 +138,23 @@ server.on('upgrade', (req, socket, head) => {
     socket.write('HTTP/1.1 401 Unauthorized\r\nConnection: close\r\n\r\n');
     return socket.destroy();
   }
-  wss.handleUpgrade(req, socket, head, (ws) => handleSshSocket(ws));
+  wss.handleUpgrade(req, socket, head, (ws) => {
+    ws.isAlive = true;
+    ws.on('pong', () => { ws.isAlive = true; });
+    handleSshSocket(ws);
+  });
 });
+
+// WebSocket ping svakih 25 s: proxyji (nginx: proxy_read_timeout 60 s) ne zatvaraju vezu bez prometa,
+// a preglednik na ping odgovara i kad je tab u pozadini. Mrtve veze se prekidaju (SSH sesija ostaje).
+const WS_PING_MS = Number(process.env.MTERM_WS_PING_SECONDS || 25) * 1000;
+setInterval(() => {
+  for (const ws of wss.clients) {
+    if (ws.isAlive === false) { ws.terminate(); continue; }
+    ws.isAlive = false;
+    try { ws.ping(); } catch {}
+  }
+}, WS_PING_MS).unref();
 
 server.listen(PORT, HOST, () => {
   console.log(`MTerm ${pkg.version} sluša na http://${HOST}:${PORT}`);
@@ -149,6 +165,7 @@ server.listen(PORT, HOST, () => {
 
 const shutdown = () => {
   closeAll();
+  closeAllSsh();
   server.close(() => process.exit(0));
   setTimeout(() => process.exit(0), 3000).unref();
 };

@@ -14,6 +14,15 @@ export class ScpAdapter {
     const { conn, fingerprint } = await connectSsh(this.opts);
     this.conn = conn;
     this.fingerprint = fingerprint;
+    this.closed = false;
+    conn.on('close', () => { this.closed = true; });
+    conn.on('end', () => { this.closed = true; });
+  }
+
+  isClosed() { return !!this.closed; }
+  async reconnect() {
+    await this.close();
+    await this.connect();
   }
 
   exec(cmd) {

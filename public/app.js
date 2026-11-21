@@ -27,6 +27,7 @@ const DEFAULT_SETTINGS = {
   theme: 'dark', syncUi: true, accent: '', cursorStyle: 'block', copyOnSelect: false,
   background: 'none', bgSpeed: 1, bgImage: '', termOpacity: 1, uiOpacity: 1, blur: 0,
   sidebar: 'visible', splitView: true, splitRatio: 0.5,
+  keepAlive: true, autoReconnect: true, sshKeep: 15, restoreTabs: true, warnClose: false,
 };
 let connections = store.get('connections', []);
 let settings = { ...DEFAULT_SETTINGS, ...store.get('settings', {}) };
@@ -34,6 +35,7 @@ if (!THEMES[settings.theme]) settings.theme = 'dark';
 // način pohrane je vezan uz preglednik: 'local' ili 'server'
 let storageMode = store.get('storageMode', 'local');
 let serverAvailable = false;
+let sshKeepMax = 240;
 
 let serverSaveTimer = null;
 function scheduleServerSave() {
@@ -371,11 +373,17 @@ function settingsFormValues() {
     termOpacity: Number(sform.termOpacity.value), uiOpacity: Number(sform.uiOpacity.value), blur: Number(sform.blur.value),
     fontSize: Number(sform.fontSize.value) || 14, fontFamily: sform.fontFamily.value || DEFAULT_SETTINGS.fontFamily,
     cursorStyle: sform.cursorStyle.value, copyOnSelect: sform.copyOnSelect.checked, sidebar: sform.sidebar.value,
+    keepAlive: sform.keepAlive.checked, autoReconnect: sform.autoReconnect.checked, sshKeep: Number(sform.sshKeep.value),
+    restoreTabs: sform.restoreTabs.checked, warnClose: sform.warnClose.checked,
   };
 }
 function fillSettingsForm(st) {
   for (const k of ['theme', 'background', 'bgSpeed', 'bgImage', 'termOpacity', 'uiOpacity', 'blur', 'fontSize', 'fontFamily', 'cursorStyle', 'sidebar']) sform[k].value = st[k];
   sform.syncUi.checked = st.syncUi;
+  for (const k of ['keepAlive', 'autoReconnect', 'restoreTabs', 'warnClose']) sform[k].checked = !!st[k];
+  sform.sshKeep.value = String(st.sshKeep);
+  if (sform.sshKeep.value === '') sform.sshKeep.value = '15';
+  [...sform.sshKeep.options].forEach((o) => { o.disabled = Number(o.value) > sshKeepMax; });
   sform.copyOnSelect.checked = st.copyOnSelect;
   sform.accent.value = st.accent || (THEMES[st.theme] || THEMES.dark).accent;
   delete sform.accent.dataset.touched;
@@ -481,6 +489,7 @@ function addTab(tab) {
   $('#panes').appendChild(tab.pane);
   $('#welcome').classList.add('hidden');
   activate(tab);
+  saveOpenTabs();
 }
 function setTabState(tab, state) {
   const d = tab.tabEl?.querySelector('.dot');
@@ -494,6 +503,7 @@ function activate(tab) {
   }
   tab.onShow?.();
   document.title = tab.title + ' - MTerm';
+  saveOpenTabs();
 }
 function closeTab(tab) {
   tab.destroy?.();
@@ -506,6 +516,8 @@ function closeTab(tab) {
     if (next) activate(next);
     else { active = null; $('#welcome').classList.remove('hidden'); document.title = 'MTerm'; }
   }
+  saveOpenTabs();
+  updateKeepAlive();
 }
 
 function openConnection(c) {
@@ -514,10 +526,66 @@ function openConnection(c) {
   $('#sidebar').classList.remove('open');
 }
 
+// ---------- održavanje veza i vraćanje tabova ----------
+// podaci veze bez tajni (za sessionStorage)
+function publicConn(c) {
+  const { password, privateKey, passphrase, ...rest } = c || {};
+  return rest;
+}
+function saveOpenTabs() {
+  if (!settings.restoreTabs) { try { sessionStorage.removeItem('mterm.openTabs'); } catch {} return; }
+  const list = tabs.map((t) => ({ ...(t.snapshot?.() || {}), active: t === active })).filter((x) => x.kind);
+  try { sessionStorage.setItem('mterm.openTabs', JSON.stringify(list)); } catch {}
+}
+function restoreTabs() {
+  if (!settings.restoreTabs) return;
+  let list = [];
+  try { list = JSON.parse(sessionStorage.getItem('mterm.openTabs') || '[]'); } catch {}
+  let toActivate = null;
+  for (const t of list) {
+    // tajne se uzimaju iz spremljenih veza (ako su spremljene)
+    const saved = t.conn?.id && connections.find((c) => c.id === t.conn.id);
+    const conn = saved ? { ...t.conn, ...saved } : t.conn;
+    if (!conn?.host) continue;
+    const tab = t.kind === 'term' ? new TerminalTab(conn, { resume: t.sid }) : new FileTab(conn, { sid: t.sid, path: t.path });
+    addTab(tab);
+    if (t.active) toActivate = tab;
+  }
+  if (toActivate) activate(toActivate);
+  if (list.length) toast(`Vraćeno tabova: ${list.length}`);
+}
+
+// Web Lock dok postoje aktivne veze: Chrome/Edge tada rjeđe zamrzavaju tab u pozadini
+let keepAliveRelease = null;
+function updateKeepAlive() {
+  const need = settings.keepAlive && tabs.some((t) => t.isLive?.());
+  if (need && !keepAliveRelease && navigator.locks?.request) {
+    navigator.locks.request('mterm-aktivne-veze-' + uid(), () => new Promise((res) => { keepAliveRelease = res; })).catch(() => {});
+  } else if (!need && keepAliveRelease) {
+    keepAliveRelease();
+    keepAliveRelease = null;
+  }
+}
+// povratak u fokus / ponovno uspostavljena mreža: odmah obnovi prekinute veze
+function wakeAll() { for (const t of tabs) t.wake?.(); }
+document.addEventListener('visibilitychange', () => { if (!document.hidden) wakeAll(); });
+window.addEventListener('online', wakeAll);
+window.addEventListener('focus', wakeAll);
+window.addEventListener('beforeunload', (e) => {
+  if (settings.warnClose && tabs.some((t) => t.isLive?.())) { e.preventDefault(); e.returnValue = ''; }
+});
+
 // ---------- SSH terminal ----------
 class TerminalTab {
-  constructor(conn) {
+  constructor(conn, opts = {}) {
     this.conn = conn;
+    this.kind = 'term';
+    this.sessionId = opts.resume || null;
+    this.received = 0;     // primljeni bajtovi izlaza (za nadoknadu nakon prekida)
+    this.live = false;
+    this.retries = 0;
+    this.retryTimer = null;
+    this.userClosed = false;
     this.title = (conn.name || conn.host) + ' (SSH)';
     this.pane = document.createElement('div');
     this.pane.className = 'pane';
@@ -557,7 +625,7 @@ class TerminalTab {
     });
     this.pane.querySelector('.toolbar').addEventListener('click', (e) => {
       const a = e.target.closest('[data-a]')?.dataset.a;
-      if (a === 'reconnect') this.connect();
+      if (a === 'reconnect') this.reconnectClicked();
       if (a === 'sftp') openConnection({ ...this.conn, protocol: 'sftp' });
       if (a === 'paste') this.paste();
       if (a === 'zoomin' || a === 'zoomout') {
@@ -567,7 +635,7 @@ class TerminalTab {
     });
     this.ro = new ResizeObserver(() => this.doFit());
     this.ro.observe($('.term-wrap', this.pane));
-    setTimeout(() => this.connect(), 0);
+    setTimeout(() => (this.sessionId ? this.openSocket('resume') : this.connect()), 0);
   }
   applySettings() {
     Object.assign(this.term.options, { fontSize: settings.fontSize, fontFamily: settings.fontFamily, theme: termTheme(),
@@ -585,42 +653,146 @@ class TerminalTab {
   }
   setStatus(s) { this.statusEl.textContent = s; }
   send(obj) { if (this.ws?.readyState === 1) this.ws.send(JSON.stringify(obj)); }
+  isLive() { return this.live; }
+  // nova SSH sesija
   connect() {
-    try { this.ws?.close(); } catch {}
+    if (needsSecret(this.conn)) return this.askSecret();
+    if (this.sessionId) { this.sendClose(); this.sessionId = null; }
+    this.openSocket('new');
+  }
+  reconnectClicked() {
+    clearTimeout(this.retryTimer);
+    this.retries = 0;
+    if (this.live) { this.term.write('\r\n\x1b[90m--- nova sesija ---\x1b[0m\r\n'); this.connect(); }
+    else if (this.sessionId) this.openSocket('resume');
+    else this.connect();
+  }
+  askSecret() {
+    this.setStatus('Potrebna je lozinka');
+    this.term.write('\r\n\x1b[33mZa novu SSH sesiju potrebna je lozinka ili ključ - otvara se prozor veze.\x1b[0m\r\n');
+    openDialog(this.conn, true);
+    closeTab(this);
+  }
+  sendClose() { try { if (this.ws?.readyState === 1) this.ws.send(JSON.stringify({ type: 'close' })); } catch {} }
+
+  openSocket(mode) {
+    clearTimeout(this.retryTimer);
+    const old = this.ws;
+    this.ws = null;
+    try { old?.close(); } catch {}
     this.doFit();
     const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
     const base = location.pathname.replace(/[^/]*$/, '');
     const ws = new WebSocket(`${proto}//${location.host}${base}ws/ssh`);
     ws.binaryType = 'arraybuffer';
     this.ws = ws;
+    this.live = false;
     setTabState(this, '');
+    let opened = false;
     ws.onopen = () => {
+      opened = true;
       const c = this.conn;
-      ws.send(JSON.stringify({ type: 'connect', host: c.host, port: c.port, username: c.username, password: c.password,
-        privateKey: c.privateKey, passphrase: c.passphrase, cols: this.term.cols, rows: this.term.rows }));
+      if (mode === 'resume') {
+        this.setStatus('Ponovno spajanje na sesiju...');
+        ws.send(JSON.stringify({ type: 'resume', id: this.sessionId, since: this.received, cols: this.term.cols, rows: this.term.rows }));
+      } else {
+        this.received = 0;
+        ws.send(JSON.stringify({ type: 'connect', host: c.host, port: c.port, username: c.username, password: c.password,
+          privateKey: c.privateKey, passphrase: c.passphrase, cols: this.term.cols, rows: this.term.rows,
+          keepMinutes: Number(settings.sshKeep) }));
+      }
     };
     ws.onmessage = (ev) => {
-      if (typeof ev.data !== 'string') { this.term.write(new Uint8Array(ev.data)); return; }
+      if (this.ws !== ws) return;
+      if (typeof ev.data !== 'string') {
+        this.received += ev.data.byteLength;
+        this.term.write(new Uint8Array(ev.data));
+        return;
+      }
       const m = JSON.parse(ev.data);
       if (m.type === 'status') { this.setStatus(m.message); this.term.write(`\x1b[90m${m.message}\x1b[0m\r\n`); }
       else if (m.type === 'hostkey') this.setStatus('Ključ hosta: ' + m.fingerprint);
-      else if (m.type === 'ready') { setTabState(this, 'on'); this.setStatus(`${this.conn.username}@${this.conn.host} · spojeno`); this.term.focus(); this.doFit(); this.send({ type: 'resize', cols: this.term.cols, rows: this.term.rows }); }
-      else if (m.type === 'error') { setTabState(this, 'err'); this.setStatus(m.message); this.term.write(`\r\n\x1b[31m${m.message}\x1b[0m\r\n`); }
-      else if (m.type === 'closed') { setTabState(this, ''); this.setStatus(m.message); this.term.write(`\r\n\x1b[33m${m.message} Kliknite "Ponovno spoji".\x1b[0m\r\n`); }
-    };
-    let opened = false;
-    ws.addEventListener('open', () => { opened = true; });
-    ws.onclose = async () => {
-      if (this.ws !== ws) return;
-      setTabState(this, '');
-      if (!opened) {
-        const me = await fetch('api/me').then((r) => r.json()).catch(() => null);
-        if (me?.authRequired && !me.authenticated) showLogin();
-        else this.term.write('\r\n\x1b[31mWebSocket veza na MTerm server nije uspjela (provjerite proxy/WebSocket podršku).\x1b[0m\r\n');
+      else if (m.type === 'session') { this.sessionId = m.id; this.received = 0; saveOpenTabs(); }
+      else if (m.type === 'ready') this.onLive('spojeno');
+      else if (m.type === 'resumed') {
+        if (m.reset) this.term.reset();
+        this.received = m.seq;
+        this.onLive('ponovno spojeno');
+      }
+      else if (m.type === 'expired') {
+        this.sessionId = null;
+        saveOpenTabs();
+        this.term.write('\r\n\x1b[33mSSH sesija na serveru više ne postoji (istekla je ili je server ponovno pokrenut).\x1b[0m\r\n');
+        if (settings.autoReconnect && !needsSecret(this.conn)) { this.term.write('\x1b[90mOtvaram novu sesiju...\x1b[0m\r\n'); this.connect(); }
+        else { this.setStatus('Sesija je istekla - kliknite "Ponovno spoji"'); setTabState(this, 'err'); }
+      }
+      else if (m.type === 'error') {
+        this.sessionId = null; this.live = false; saveOpenTabs();
+        setTabState(this, 'err'); this.setStatus(m.message); this.term.write(`\r\n\x1b[31m${m.message}\x1b[0m\r\n`);
+      }
+      else if (m.type === 'closed') {
+        this.sessionId = null; this.live = false; saveOpenTabs(); updateKeepAlive();
+        setTabState(this, ''); this.setStatus(m.message);
+        if (m.reason === 'lost' && settings.autoReconnect && !needsSecret(this.conn)) {
+          this.term.write(`\r\n\x1b[33m${m.message} Ponovno spajanje...\x1b[0m\r\n`);
+          this.scheduleRetry('new');
+        } else this.term.write(`\r\n\x1b[33m${m.message} Kliknite "Ponovno spoji".\x1b[0m\r\n`);
       }
     };
+    ws.onclose = async (ev) => {
+      if (this.ws !== ws || this.userClosed) return;
+      const wasLive = this.live;
+      this.live = false;
+      updateKeepAlive();
+      setTabState(this, '');
+      if (ev.code === 4000) { this.setStatus('Sesija je otvorena u drugom prozoru.'); return; }
+      if (!opened && !this.sessionId) {
+        const me = await fetch('api/me').then((r) => r.json()).catch(() => null);
+        if (me?.authRequired && !me.authenticated) return showLogin();
+        this.term.write('\r\n\x1b[31mWebSocket veza na MTerm server nije uspjela (provjerite proxy/WebSocket podršku).\x1b[0m\r\n');
+        return;
+      }
+      if (!this.sessionId) return;
+      // veza s MTerm serverom je pukla, a SSH sesija i dalje živi na serveru
+      if (wasLive) this.term.write('\r\n\x1b[90m[veza s MTerm serverom prekinuta - SSH sesija ostaje aktivna na serveru]\x1b[0m\r\n');
+      if (settings.autoReconnect) this.scheduleRetry('resume');
+      else this.setStatus('Veza prekinuta - kliknite "Ponovno spoji"');
+    };
   }
-  destroy() { try { this.ws?.close(); } catch {} this.ro.disconnect(); this.term.dispose(); }
+  onLive(text) {
+    this.live = true;
+    this.retries = 0;
+    setTabState(this, 'on');
+    this.setStatus(`${this.conn.username}@${this.conn.host} · ${text}`);
+    if (active === this) this.term.focus();
+    this.doFit();
+    this.send({ type: 'resize', cols: this.term.cols, rows: this.term.rows });
+    updateKeepAlive();
+  }
+  scheduleRetry(mode) {
+    clearTimeout(this.retryTimer);
+    const delays = [1, 2, 4, 8, 15, 30];
+    const d = delays[Math.min(this.retries, delays.length - 1)];
+    this.retries++;
+    this.setStatus(`Ponovno spajanje za ${d} s... (pokušaj ${this.retries})`);
+    this.retryTimer = setTimeout(() => this.openSocket(mode), d * 1000);
+  }
+  // pozvano kad se preglednik vrati u fokus ili mreža ponovno proradi
+  wake() {
+    if (this.userClosed || this.live || !this.sessionId || !settings.autoReconnect) return;
+    if (this.ws && this.ws.readyState <= 1) return; // spajanje je već u tijeku
+    this.retries = 0;
+    this.openSocket('resume');
+  }
+  destroy() {
+    this.userClosed = true;
+    clearTimeout(this.retryTimer);
+    this.sendClose();
+    try { this.ws?.close(); } catch {}
+    this.ro.disconnect();
+    this.term.dispose();
+  }
+  snapshot() { return { kind: 'term', conn: publicConn(this.conn), sid: this.sessionId }; }
 }
 
 // ---------- upravitelj datoteka ----------
@@ -641,8 +813,10 @@ const joinPath = (dir, name) => (dir.endsWith('/') ? dir : dir + '/') + name;
 const parentPath = (p) => { const s = p.replace(/\/+$/, '').split('/'); s.pop(); return s.join('/') || '/'; };
 
 class FileTab {
-  constructor(conn) {
+  constructor(conn, opts = {}) {
     this.conn = conn;
+    this.kind = 'files';
+    this.restore = opts.sid ? { sid: opts.sid, path: opts.path || '/' } : null;
     this.title = (conn.name || conn.host) + ` (${PROTO[conn.protocol].label})`;
     this.path = '/';
     this.items = [];
@@ -741,7 +915,15 @@ class FileTab {
     R.addEventListener('mousedown', () => this.setActiveSide('remote'));
     $('.side.local', this.pane).addEventListener('mousedown', () => this.setActiveSide('local'));
     this.activeSide = 'remote';
-    this.connect();
+    if (this.restore) {
+      this.sid = this.restore.sid;
+      setTabState(this, 'on');
+      this.cd(this.restore.path);
+    } else this.connect();
+    // otkucaj svake minute: sesija na serveru ne istječe dok je tab otvoren (i u pozadini)
+    this.heartbeat = setInterval(() => {
+      if (settings.keepAlive && this.sid) fetch(`api/fs/${this.sid}/ping`, { method: 'POST' }).catch(() => {});
+    }, 60 * 1000);
   }
 
   setStatus(s) { this.statusEl.textContent = s; }
@@ -752,7 +934,18 @@ class FileTab {
   }
   url(action, p) { return `api/fs/${this.sid}/${action}?path=${encodeURIComponent(p)}`; }
 
+  isLive() { return !!this.sid; }
+  snapshot() { return { kind: 'files', conn: publicConn(this.conn), sid: this.sid, path: this.path }; }
   async connect() {
+    if (needsSecret(this.conn)) {
+      this.sid = null;
+      setTabState(this, 'err');
+      this.setStatus('Sesija je istekla - potrebna je lozinka');
+      this.tbody.innerHTML = `<tr><td colspan="4" class="empty">Sesija na serveru je istekla, a lozinka nije spremljena.<br><br>
+        <button class="btn primary" data-secret>Unesi lozinku i spoji</button></td></tr>`;
+      $('[data-secret]', this.tbody).addEventListener('click', () => { openDialog(this.conn, true); closeTab(this); });
+      return;
+    }
     setTabState(this, '');
     this.setStatus('Spajanje na ' + this.conn.host + ' ...');
     try {
@@ -762,6 +955,8 @@ class FileTab {
         privateKey: c.privateKey, passphrase: c.passphrase, ftpsMode: c.ftpsMode, insecure: c.insecure, basePath: c.basePath }) });
       this.sid = r.id;
       setTabState(this, 'on');
+      saveOpenTabs();
+      updateKeepAlive();
       if (r.fingerprint) toast('Ključ hosta ' + c.host + ': ' + r.fingerprint, false, 6000);
       await this.cd(r.home || '/');
     } catch (err) {
@@ -796,6 +991,7 @@ class FileTab {
       this.items = r.items;
       this.sel = new Set([...keepSel].filter((n) => r.items.some((i) => i.name === n)));
       $('.pathbar input', this.remoteEl).value = this.path;
+      saveOpenTabs();
       this.render();
       placeCursor(this, focusName ?? (same ? this.cursor : null));
       const dirs = r.items.filter((i) => i.type === 'dir').length;
@@ -1209,6 +1405,7 @@ class FileTab {
 
   onShow() { this.pane.focus({ preventScroll: true }); this.applySplit(); }
   destroy() {
+    clearInterval(this.heartbeat);
     if (this.sid) fetch(`api/fs/${this.sid}/close`, { method: 'POST' }).catch(() => {});
   }
 }
@@ -1684,6 +1881,7 @@ async function readDroppedEntries(roots) {
     me = await fetch('api/me').then((r) => r.json());
     $('#version').textContent = 'v' + me.version;
     serverAvailable = !!me.serverStorage;
+    if (me.sshKeepMax != null) sshKeepMax = Number(me.sshKeepMax);
     if (me.authRequired) $('#btnLogout').classList.remove('hidden');
   } catch { toast('Server MTerm nije dostupan.', true); return; }
   if (me.authRequired && !me.authenticated) {
@@ -1697,4 +1895,5 @@ async function readDroppedEntries(roots) {
       catch (e) { toast('Učitavanje veza sa servera nije uspjelo: ' + e.message, true); }
     }
   }
+  restoreTabs();
 })();

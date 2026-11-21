@@ -101,6 +101,7 @@ async function testFiles(t) {
   await post(`/api/fs/${s.id}/delete${q(dir)}`, { isDir: true });
   const list3 = await api(`/api/fs/${s.id}/list${q(s.home)}`);
   if (list3.items.find((i) => i.name === 'mterm-test-' + t.protocol)) throw new Error('brisanje mape nije uspjelo');
+  await post(`/api/fs/${s.id}/ping`);
   await post(`/api/fs/${s.id}/close`);
 }
 
@@ -124,6 +125,60 @@ function testSsh() {
   });
 }
 
+// SSH sesija preživljava prekid WebSocketa: izlaz nastao dok je klijent odspojen nadoknađuje se
+function wsOpen() {
+  return new Promise((res, rej) => {
+    const ws = new WebSocket(BASE.replace(/^http/, 'ws') + '/ws/ssh');
+    ws.on('open', () => res(ws));
+    ws.on('error', rej);
+  });
+}
+function collect(ws, state) {
+  ws.on('message', (d, bin) => {
+    if (bin) { state.out += d.toString(); state.received += d.length; }
+    else { const m = JSON.parse(d.toString()); state.msgs.push(m); if (m.type === 'session') { state.id = m.id; state.received = 0; } }
+  });
+}
+async function waitFor(fn, ms, label) {
+  const t0 = Date.now();
+  while (Date.now() - t0 < ms) { if (fn()) return; await new Promise((r) => setTimeout(r, 100)); }
+  throw new Error('čekanje: ' + label);
+}
+async function testSshResume() {
+  const st = { out: '', received: 0, msgs: [], id: null };
+  const ws1 = await wsOpen();
+  collect(ws1, st);
+  ws1.send(JSON.stringify({ type: 'connect', host: H, port: 2222, username: U, password: P, cols: 100, rows: 30, keepMinutes: 5 }));
+  await waitFor(() => st.msgs.some((m) => m.type === 'ready'), 15000, 'ready');
+  ws1.send(JSON.stringify({ type: 'data', data: 'echo PRIJE_$((1+1))\n' }));
+  await waitFor(() => st.out.includes('PRIJE_2'), 10000, 'PRIJE_2');
+  // naredba ispisuje tek nakon što se klijent odspoji
+  ws1.send(JSON.stringify({ type: 'data', data: 'sleep 2; echo DOK_SMO_ODSUTNI_$((3+4))\n' }));
+  await new Promise((r) => setTimeout(r, 300));
+  ws1.terminate();
+  await new Promise((r) => setTimeout(r, 3000));
+  const st2 = { out: '', received: st.received, msgs: [], id: st.id };
+  const ws2 = await wsOpen();
+  collect(ws2, st2);
+  ws2.send(JSON.stringify({ type: 'resume', id: st.id, since: st.received, cols: 100, rows: 30 }));
+  await waitFor(() => st2.msgs.some((m) => m.type === 'resumed' || m.type === 'expired'), 5000, 'resumed');
+  if (st2.msgs.some((m) => m.type === 'expired')) throw new Error('sesija je istekla');
+  await waitFor(() => st2.out.includes('DOK_SMO_ODSUTNI_7'), 5000, 'nadoknada izlaza: ' + JSON.stringify(st2.out.slice(-200)));
+  if (st2.out.includes('PRIJE_2')) throw new Error('izlaz prije prekida je poslan dvaput');
+  ws2.send(JSON.stringify({ type: 'data', data: 'echo NAKON_$((2*5))\n' }));
+  await waitFor(() => st2.out.includes('NAKON_10'), 5000, 'NAKON_10');
+  // zatvaranje taba gasi sesiju
+  ws2.send(JSON.stringify({ type: 'close' }));
+  await new Promise((r) => setTimeout(r, 500));
+  const st3 = { out: '', received: 0, msgs: [] };
+  const ws3 = await wsOpen();
+  collect(ws3, st3);
+  ws3.send(JSON.stringify({ type: 'resume', id: st.id, since: 0 }));
+  await waitFor(() => st3.msgs.length, 3000, 'odgovor');
+  if (st3.msgs[0].type !== 'expired') throw new Error('sesija nije zatvorena: ' + st3.msgs[0].type);
+  ws3.close();
+}
+
 let failed = 0;
 const run = async (name, fn) => {
   try { await fn(); console.log(`OK    ${name}`); }
@@ -140,6 +195,7 @@ await run('pohrana na serveru', async () => {
   if (d.settings.theme !== 'nord') throw new Error('postavke');
 });
 await run('ssh terminal', testSsh);
+await run('ssh nastavak sesije nakon prekida', testSshResume);
 for (const t of targets) await run(t.protocol, () => testFiles(t));
 console.log(failed ? `\n${failed} test(ova) nije prošlo.` : '\nSvi testovi su prošli.');
 process.exit(failed ? 1 : 0);

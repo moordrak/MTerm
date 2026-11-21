@@ -28,6 +28,8 @@ Mogućnosti:
 - gumb **SFTP** u SSH tabu otvara datoteke istog servera
 - slanje datoteka i **cijelih mapa** (gumb ili povuci-i-ispusti) s prikazom napretka
 - preuzimanje cijelih mapa kao ZIP (u hodu, ZIP64)
+- **veze ostaju žive u pozadini**: SSH sesija se čuva na serveru i nakon prekida ili osvježavanja stranice
+  terminal nastavlja točno gdje je stao (s nadoknadom propuštenog izlaza); tabovi se vraćaju nakon osvježavanja
 - potpuna navigacija tipkovnicom u upravitelju datoteka (strelice, Enter, Tab između strana, F2/F5/F6/F7/F8,
   skok upisivanjem imena; `?` prikazuje sve prečace)
 - **podijeljeni prikaz**: lokalne mape (ovo računalo) lijevo i udaljene desno, kopiranje u oba smjera
@@ -94,6 +96,8 @@ Otvorite `http://<server>:8080`.
 | `MTERM_IDLE_MINUTES` | `30` | nakon koliko minuta neaktivnosti se zatvara sesija datoteka |
 | `MTERM_SERVER_STORAGE` | `true` | dopušta spremanje veza i postavki na server |
 | `MTERM_DATA_DIR` | `./data` (Docker: `/data`, LXC: `/var/lib/mterm`) | mapa za spremljene veze |
+| `MTERM_SSH_KEEP_MAX` | `240` | najdulje (u minutama) koliko se SSH sesija čuva nakon prekida veze s preglednikom |
+| `MTERM_WS_PING_SECONDS` | `25` | razmak WebSocket pinga (drži vezu kroz proxy otvorenom) |
 | `MTERM_SECRET` | *(automatski `secret.key`)* | ključ za šifriranje lozinaka spremljenih na serveru |
 
 Kod LXC/systemd instalacije postavke su u `/etc/mterm/mterm.env` (`systemctl restart mterm` nakon izmjene).

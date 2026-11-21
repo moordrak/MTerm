@@ -37,6 +37,15 @@ export class SftpAdapter {
     this.fingerprint = fingerprint;
     this.sftp = await new Promise((res, rej) => conn.sftp((e, s) => (e ? rej(e) : res(s))));
     conn.on('close', () => { this.closed = true; });
+    conn.on('end', () => { this.closed = true; });
+    this.sftp.on?.('close', () => { this.closed = true; });
+  }
+
+  isClosed() { return !!this.closed; }
+  async reconnect() {
+    await this.close();
+    this.closed = false;
+    await this.connect();
   }
 
   call(fn, ...args) {
