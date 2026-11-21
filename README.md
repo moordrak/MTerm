@@ -28,6 +28,8 @@ Mogućnosti:
 - gumb **SFTP** u SSH tabu otvara datoteke istog servera
 - slanje datoteka i **cijelih mapa** (gumb ili povuci-i-ispusti) s prikazom napretka
 - preuzimanje cijelih mapa kao ZIP (u hodu, ZIP64)
+- potpuna navigacija tipkovnicom u upravitelju datoteka (strelice, Enter, Tab između strana, F2/F5/F6/F7/F8,
+  skok upisivanjem imena; `?` prikazuje sve prečace)
 - **podijeljeni prikaz**: lokalne mape (ovo računalo) lijevo i udaljene desno, kopiranje u oba smjera
   povlačenjem ili gumbima (Chrome/Edge preko HTTPS-a)
 - opcija za self-signed TLS certifikate (FTPS/WebDAVS)

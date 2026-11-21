@@ -1,5 +1,18 @@
 # Promjene
 
+## v1.5.0 (2026-11-21)
+
+### Novo
+- **Navigacija tipkovnicom** u upravitelju datoteka (udaljena i lokalna strana):
+  - ↑ ↓, Home/End, PgUp/PgDn - pomicanje; Shift za označavanje niza, Ctrl za pomicanje bez promjene oznake
+  - Enter / → ulazak u mapu, ← / Backspace / Alt+↑ mapa iznad (pokazivač ostaje na mapi iz koje ste izašli)
+  - Enter na datoteci: preuzimanje (u podijeljenom prikazu kopiranje na drugu stranu)
+  - Razmak / Insert označavanje, Ctrl+A sve, Esc poništava oznake
+  - upisivanje slova skače na stavku koja tako počinje
+  - Tab prebacuje između lokalne i udaljene strane
+  - F2 preimenuj, F5 / Ctrl+R osvježi, F6 kopiraj na drugu stranu, F7 nova mapa, Delete / F8 obriši
+  - Ctrl+L upis putanje; ? ili gumb ⌨ prikazuje sve prečace
+
 ## v1.4.0 (2026-11-18)
 
 ### Novo

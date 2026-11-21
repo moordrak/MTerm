@@ -666,6 +666,7 @@ class FileTab {
         <button class="btn small" data-a="mkdir">+ Mapa</button>
         <button class="btn small" data-a="rename">Preimenuj</button>
         <button class="btn small danger" data-a="delete">Obriši</button>
+        <button class="btn small" data-a="keyHelp" title="Prečaci tipkovnice (?)">⌨</button>
         <input type="file" multiple hidden class="pick-files">
         <input type="file" multiple hidden class="pick-folder" webkitdirectory directory>
       </div>
@@ -689,7 +690,13 @@ class FileTab {
       const a = e.target.closest('[data-a]')?.dataset.a;
       if (a && this[a]) this[a]();
     });
-    $('.pathbar', R).addEventListener('submit', (e) => { e.preventDefault(); this.cd(e.target.path.value.trim() || '/'); });
+    $('.pathbar', R).addEventListener('submit', (e) => {
+      e.preventDefault();
+      this.cd(e.target.path.value.trim() || '/').then(() => this.pane.focus({ preventScroll: true }));
+    });
+    $('.pathbar input', R).addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') { e.target.value = this.path; this.pane.focus({ preventScroll: true }); }
+    });
     this.fileInput.addEventListener('change', () => { this.uploadFiles([...this.fileInput.files]); this.fileInput.value = ''; });
     this.folderInput.addEventListener('change', () => {
       const entries = [...this.folderInput.files].map((f) => ({ file: f, rel: f.webkitRelativePath || f.name }));
@@ -729,13 +736,11 @@ class FileTab {
       } else if (files.length) this.uploadFiles(files);
     });
     this.pane.tabIndex = 0;
-    this.pane.addEventListener('keydown', (e) => {
-      if (e.target.tagName === 'INPUT') return;
-      if (e.key === 'Delete') this.delete();
-      else if (e.key === 'F2') this.rename();
-      else if (e.key === 'Backspace') this.up();
-      else if (e.key === 'F5') { e.preventDefault(); this.refresh(); }
-    });
+    this.pane.addEventListener('keydown', (e) => fileListKey(this, e));
+    // klik na stranu je čini aktivnom za tipkovnicu
+    R.addEventListener('mousedown', () => this.setActiveSide('remote'));
+    $('.side.local', this.pane).addEventListener('mousedown', () => this.setActiveSide('local'));
+    this.activeSide = 'remote';
     this.connect();
   }
 
@@ -780,16 +785,19 @@ class FileTab {
     }
   }
 
-  async cd(p) {
+  async cd(p, focusName) {
     this.setStatus('Učitavanje ' + p + ' ...');
     try {
       const r = await this.call(() => api(this.url('list', p)));
       if (!r) return;
+      const same = r.path === this.path;
+      const keepSel = same ? new Set(this.sel) : new Set();
       this.path = r.path;
       this.items = r.items;
-      this.sel.clear();
+      this.sel = new Set([...keepSel].filter((n) => r.items.some((i) => i.name === n)));
       $('.pathbar input', this.remoteEl).value = this.path;
       this.render();
+      placeCursor(this, focusName ?? (same ? this.cursor : null));
       const dirs = r.items.filter((i) => i.type === 'dir').length;
       this.setStatus(`${this.conn.username ? this.conn.username + '@' : ''}${this.conn.host} · ${plural(dirs, 'mapa', 'mape', 'mapa')}, ${plural(r.items.length - dirs, 'datoteka', 'datoteke', 'datoteka')}`);
     } catch {}
@@ -805,11 +813,14 @@ class FileTab {
       if (typeof va === 'number') return (va - vb) * dir;
       return String(va).localeCompare(String(vb), 'hr', { numeric: true, sensitivity: 'base' }) * dir;
     });
+    this.viewItems = items;
     this.tbody.innerHTML = '';
     if (this.path !== '/') {
       const tr = document.createElement('tr');
       tr.className = 'row';
+      tr.dataset.name = '..';
       tr.innerHTML = '<td class="name"><span class="icon">📁</span>..</td><td></td><td></td><td class="perm"></td>';
+      tr.addEventListener('click', () => { this.sel.clear(); this.cursor = '..'; markRows(this); });
       tr.addEventListener('dblclick', () => this.up());
       this.tbody.appendChild(tr);
     }
@@ -817,6 +828,7 @@ class FileTab {
     for (const i of items) {
       const tr = document.createElement('tr');
       tr.className = 'row' + (this.sel.has(i.name) ? ' sel' : '');
+      tr.dataset.name = i.name;
       const icon = this.isDir(i) ? (i.type === 'link' ? '🔗' : '📁') : i.type === 'link' ? '🔗' : '📄';
       tr.innerHTML = `<td class="name" title="${esc(i.name)}"><span class="icon">${icon}</span>${esc(i.name)}</td>
         <td class="num">${this.isDir(i) ? '' : fmtSize(i.size)}</td><td>${fmtDate(i.mtime)}</td><td class="mono perm">${esc(i.perms)}</td>`;
@@ -828,13 +840,11 @@ class FileTab {
           names.slice(a, b + 1).forEach((n) => this.sel.add(n));
         } else { this.sel.clear(); this.sel.add(i.name); }
         this.lastClick = i.name;
-        this.tbody.querySelectorAll('tr.row').forEach((r) => r.classList.toggle('sel', this.sel.has(r.querySelector('.name')?.title)));
+        this.cursor = i.name;
+        this.anchor = i.name;
+        markRows(this);
       });
-      tr.addEventListener('dblclick', () => {
-        if (this.isDir(i)) this.cd(joinPath(this.path, i.name));
-        else if (this.splitOn() && this.local.dir) this.downloadToLocal([i]);
-        else this.downloadItem(i);
-      });
+      tr.addEventListener('dblclick', () => this.openItem(i.name));
       tr.draggable = true;
       tr.addEventListener('dragstart', (e) => {
         if (!this.sel.has(i.name)) { this.sel.clear(); this.sel.add(i.name); }
@@ -848,7 +858,30 @@ class FileTab {
   }
 
   selected() { return this.items.filter((i) => this.sel.has(i.name)); }
-  up() { if (this.path !== '/') this.cd(parentPath(this.path)); }
+  up() { if (this.path !== '/') this.cd(parentPath(this.path), this.path.split('/').filter(Boolean).pop()); }
+  // Enter / dvoklik: mapa -> uđi, datoteka -> preuzmi (u lokalnu mapu ako je podijeljeni prikaz)
+  openItem(name) {
+    if (name === '..') return this.up();
+    const i = this.items.find((x) => x.name === name);
+    if (!i) return;
+    if (this.isDir(i)) this.cd(joinPath(this.path, i.name));
+    else if (this.splitOn() && this.local.dir) this.downloadToLocal([i]);
+    else this.downloadItem(i);
+  }
+  isDirName(name) { const i = this.items.find((x) => x.name === name); return !!i && this.isDir(i); }
+  isActive() { return !this.splitOn() || this.activeSide !== 'local'; }
+  copyToOther() { this.toLocal(); }
+  keyHelp() { showKeyHelp(); }
+  focusPath() { const inp = $('.pathbar input', this.remoteEl); inp.focus(); inp.select(); }
+  setActiveSide(side) {
+    if (side === 'local' && !this.splitOn()) side = 'remote';
+    this.activeSide = side;
+    const on = this.splitOn();
+    this.remoteEl.classList.toggle('side-active', on && side === 'remote');
+    $('.side.local', this.pane).classList.toggle('side-active', on && side === 'local');
+    markRows(this);
+    if (this.local) markRows(this.local);
+  }
   refresh() { if (this.sid) this.cd(this.path); else this.connect(); }
   upload() { this.fileInput.click(); }
   uploadFolder() { this.folderInput.click(); }
@@ -897,6 +930,8 @@ class FileTab {
   }
   applySplit() {
     const on = this.splitOn();
+    if (!on && this.activeSide === 'local') this.activeSide = 'remote';
+    queueMicrotask(() => this.setActiveSide(this.activeSide || 'remote'));
     $('.side.local', this.pane).classList.toggle('hidden', !on);
     $('.divider', this.pane).classList.toggle('hidden', !on);
     this.pane.classList.toggle('split-on', on);
@@ -1177,6 +1212,152 @@ class FileTab {
     if (this.sid) fetch(`api/fs/${this.sid}/close`, { method: 'POST' }).catch(() => {});
   }
 }
+// ---------- navigacija tipkovnicom (udaljena i lokalna strana) ----------
+const rowNames = (P) => [...P.tbody.querySelectorAll('tr.row')].map((r) => r.dataset.name);
+function markRows(P) {
+  const active = P.isActive?.() ?? true;
+  P.tbody.querySelectorAll('tr.row').forEach((r) => {
+    r.classList.toggle('sel', P.sel.has(r.dataset.name));
+    r.classList.toggle('cursor', r.dataset.name === P.cursor);
+    r.classList.toggle('cursor-dim', r.dataset.name === P.cursor && !active);
+  });
+}
+function scrollToCursor(P) {
+  const r = [...P.tbody.querySelectorAll('tr.row')].find((x) => x.dataset.name === P.cursor);
+  r?.scrollIntoView({ block: 'nearest' });
+}
+// nakon učitavanja mape: pokazivač na zadanu stavku, inače na prvu stavku (ne na "..")
+function placeCursor(P, prefer) {
+  const names = rowNames(P);
+  P.cursor = names.includes(prefer) ? prefer : (names.find((n) => n !== '..') ?? names[0] ?? null);
+  P.anchor = P.cursor;
+  markRows(P);
+  scrollToCursor(P);
+}
+function moveCursor(P, idx, e) {
+  const names = rowNames(P);
+  if (!names.length) return;
+  idx = Math.max(0, Math.min(names.length - 1, idx));
+  const name = names[idx];
+  if (e.shiftKey) {
+    const a = names.indexOf(P.anchor ?? P.cursor ?? name);
+    const [x, y] = [a < 0 ? idx : a, idx].sort((m, n) => m - n);
+    P.sel = new Set(names.slice(x, y + 1).filter((n) => n !== '..'));
+  } else if (!(e.ctrlKey || e.metaKey)) {
+    P.sel = new Set(name === '..' ? [] : [name]);
+    P.anchor = name;
+  }
+  P.cursor = name;
+  markRows(P);
+  scrollToCursor(P);
+}
+// ako ništa nije označeno, radnja se odnosi na stavku pod pokazivačem
+function ensureSelection(P) {
+  if (!P.sel.size && P.cursor && P.cursor !== '..') { P.sel.add(P.cursor); markRows(P); }
+}
+
+const typeAhead = { text: '', timer: null };
+function fileListKey(tab, e) {
+  const t = e.target;
+  if (t.closest?.('input, textarea, select, [contenteditable]')) return;
+  if (t.closest?.('button') && (e.key === 'Enter' || e.key === ' ')) return; // neka gumb odradi svoj klik
+  if (document.querySelector('.overlay:not(.hidden)')) return;
+  const split = tab.splitOn();
+  const P = split && tab.activeSide === 'local' ? tab.local : tab;
+  const ctrl = e.ctrlKey || e.metaKey;
+  const k = e.key;
+  const done = () => { e.preventDefault(); e.stopPropagation(); };
+
+  if (k === 'Tab' && split && !ctrl && !e.altKey) {
+    done();
+    tab.setActiveSide(tab.activeSide === 'local' ? 'remote' : 'local');
+    const S = tab.activeSide === 'local' ? tab.local : tab;
+    if (!S.cursor) placeCursor(S, null);
+    return;
+  }
+  if (k === '?' || k === 'F1') { done(); showKeyHelp(); return; }
+  if (P === tab.local && !tab.local.dir) {
+    if (k === 'Enter') { done(); tab.local.pick(); }
+    return;
+  }
+  const names = rowNames(P);
+  const idx = Math.max(0, names.indexOf(P.cursor));
+  const page = Math.max(1, Math.floor((P.listEl.clientHeight || 400) / 30) - 1);
+
+  if (k === 'ArrowDown') { done(); moveCursor(P, P.cursor == null ? 0 : idx + 1, e); }
+  else if (k === 'ArrowUp' && e.altKey) { done(); P.up(); }
+  else if (k === 'ArrowUp') { done(); moveCursor(P, idx - 1, e); }
+  else if (k === 'Home') { done(); moveCursor(P, 0, e); }
+  else if (k === 'End') { done(); moveCursor(P, names.length - 1, e); }
+  else if (k === 'PageDown') { done(); moveCursor(P, idx + page, e); }
+  else if (k === 'PageUp') { done(); moveCursor(P, idx - page, e); }
+  else if (k === 'Enter') { done(); if (P.cursor) P.openItem(P.cursor); }
+  else if (k === 'ArrowRight' && !ctrl) { done(); if (P.cursor && P.isDirName(P.cursor)) P.openItem(P.cursor); }
+  else if ((k === 'ArrowLeft' && !ctrl) || k === 'Backspace') { done(); P.up(); }
+  else if (k === ' ' || k === 'Insert') {
+    done();
+    if (P.cursor && P.cursor !== '..') {
+      P.sel.has(P.cursor) ? P.sel.delete(P.cursor) : P.sel.add(P.cursor);
+      P.anchor = P.cursor;
+      markRows(P);
+    }
+    if (k === 'Insert') moveCursor(P, idx + 1, { ctrlKey: true });
+  }
+  else if (ctrl && (k === 'a' || k === 'A')) { done(); P.sel = new Set(names.filter((n) => n !== '..')); markRows(P); }
+  else if (k === 'Escape') { done(); P.sel.clear(); markRows(P); }
+  else if (k === 'Delete' || k === 'F8') { done(); ensureSelection(P); P.delete(); }
+  else if (k === 'F2') { done(); ensureSelection(P); P.rename(); }
+  else if (k === 'F7') { done(); P.mkdir(); }
+  else if (k === 'F5' || (ctrl && (k === 'r' || k === 'R'))) { done(); P.refresh(); }
+  else if (k === 'F6') {
+    done();
+    if (!split) return toast('Kopiranje na drugu stranu radi u podijeljenom prikazu (⇆ Lokalno).', true);
+    ensureSelection(P); P.copyToOther();
+  }
+  else if (ctrl && (k === 'l' || k === 'L') && P === tab) { done(); tab.focusPath(); }
+  else if (k.length === 1 && !ctrl && !e.altKey) {
+    // upisivanje imena: skok na prvu stavku koja počinje upisanim tekstom
+    done();
+    clearTimeout(typeAhead.timer);
+    typeAhead.text += k.toLocaleLowerCase('hr');
+    typeAhead.timer = setTimeout(() => { typeAhead.text = ''; }, 900);
+    const list = names.filter((n) => n !== '..');
+    const lc = (n) => n.toLocaleLowerCase('hr');
+    let hit = list.find((n) => lc(n).startsWith(typeAhead.text));
+    if (!hit && typeAhead.text.length === 1) hit = null;
+    if (!hit) hit = list.find((n) => lc(n).includes(typeAhead.text));
+    if (hit) moveCursor(P, names.indexOf(hit), {});
+  }
+}
+
+function showKeyHelp() {
+  let el = $('#keyHelp');
+  if (!el) {
+    el = document.createElement('div');
+    el.id = 'keyHelp';
+    el.className = 'overlay';
+    const rows = [
+      ['↑ ↓', 'pomicanje'], ['Shift + ↑ ↓', 'označavanje niza'], ['Ctrl + ↑ ↓', 'pomicanje bez promjene oznake'],
+      ['Home / End', 'prva / zadnja stavka'], ['PgUp / PgDn', 'stranica gore / dolje'],
+      ['Enter', 'otvori mapu / preuzmi ili pošalji datoteku'], ['→', 'uđi u mapu'], ['← / Backspace / Alt + ↑', 'mapa iznad'],
+      ['Razmak', 'označi / odznači'], ['Insert', 'označi i idi na sljedeću'], ['Ctrl + A', 'označi sve'], ['Esc', 'poništi oznake'],
+      ['slova', 'skok na stavku koja počinje upisanim'], ['Tab', 'prebacivanje lokalno ⇄ udaljeno'],
+      ['F6', 'kopiraj na drugu stranu'], ['F7', 'nova mapa'], ['F2', 'preimenuj'], ['Delete / F8', 'obriši'],
+      ['F5 / Ctrl + R', 'osvježi'], ['Ctrl + L', 'upis putanje (udaljeno)'], ['? / F1', 'ova pomoć'],
+    ];
+    el.innerHTML = `<div class="card dialog small"><h2>Tipkovnica - datoteke</h2><table class="keys">${rows
+      .map(([a, b]) => `<tr><td><kbd>${a}</kbd></td><td>${b}</td></tr>`).join('')}</table>
+      <div class="actions"><span class="spacer"></span><button class="btn primary">Zatvori</button></div></div>`;
+    document.body.appendChild(el);
+    const close = () => { el.classList.add('hidden'); active?.onShow?.(); };
+    el.addEventListener('click', (e) => { if (e.target === el || e.target.closest('button')) close(); });
+    el.addEventListener('keydown', (e) => { e.preventDefault(); close(); });
+  }
+  el.classList.remove('hidden');
+  el.tabIndex = -1;
+  el.focus();
+}
+
 // ---------- lokalne mape (File System Access API) ----------
 const idb = {
   open() {
@@ -1296,9 +1477,21 @@ class LocalPanel {
     } catch (e) { if (e.name !== 'AbortError') toast('Odabir mape: ' + e.message, true); }
   }
   open(h) { this.stack = [{ handle: h, name: h.name }]; this.refresh(); }
-  up() { if (this.stack.length > 1) { this.stack.pop(); this.refresh(); } }
+  up() { if (this.stack.length > 1) { const from = this.stack.pop(); this.refresh(from.name); } }
+  openItem(name) {
+    if (name === '..') return this.up();
+    const i = this.items.find((x) => x.name === name);
+    if (!i) return;
+    if (i.dir) { this.stack.push({ handle: i.handle, name: i.name }); this.refresh(null, true); }
+    else this.sendToRemote([i]);
+  }
+  isDirName(name) { return !!this.items.find((x) => x.name === name && x.dir); }
+  copyToOther() { this.send(); }
+  rename() { toast('Preimenovanje lokalnih stavki preglednik ne podržava.', true); }
+  get listElement() { return this.listEl; }
+  isActive() { return this.tab.splitOn() && this.tab.activeSide === 'local'; }
 
-  async refresh() {
+  async refresh(focusName, entered) {
     if (!this.dir) return;
     const pathText = this.stack.map((s) => s.name).join('/');
     $('.lpath', this.el).textContent = pathText;
@@ -1315,9 +1508,12 @@ class LocalPanel {
         }
       }
       items.sort((a, b) => (a.dir !== b.dir ? (a.dir ? -1 : 1) : a.name.localeCompare(b.name, 'hr', { numeric: true, sensitivity: 'base' })));
+      const prevCursor = entered ? null : this.cursor;
+      const keep = entered ? new Set() : new Set([...this.sel].filter((n) => items.some((i) => i.name === n)));
       this.items = items;
-      this.sel.clear();
+      this.sel = keep;
       this.render();
+      placeCursor(this, focusName ?? prevCursor);
       const d = items.filter((i) => i.dir).length;
       this.setStatus(`${plural(d, 'mapa', 'mape', 'mapa')}, ${plural(items.length - d, 'datoteka', 'datoteke', 'datoteka')}`);
     } catch (e) {
@@ -1331,7 +1527,9 @@ class LocalPanel {
     if (this.stack.length > 1) {
       const tr = document.createElement('tr');
       tr.className = 'row';
+      tr.dataset.name = '..';
       tr.innerHTML = '<td class="name"><span class="icon">📁</span>..</td><td></td><td></td>';
+      tr.addEventListener('click', () => { this.sel.clear(); this.cursor = '..'; markRows(this); });
       tr.addEventListener('dblclick', () => this.up());
       this.tbody.appendChild(tr);
     }
@@ -1339,6 +1537,7 @@ class LocalPanel {
     for (const i of this.items) {
       const tr = document.createElement('tr');
       tr.className = 'row' + (this.sel.has(i.name) ? ' sel' : '');
+      tr.dataset.name = i.name;
       tr.innerHTML = `<td class="name" title="${esc(i.name)}"><span class="icon">${i.dir ? '📁' : '📄'}</span>${esc(i.name)}</td>
         <td class="num">${i.dir ? '' : fmtSize(i.size)}</td><td>${fmtDate(i.mtime)}</td>`;
       tr.addEventListener('click', (e) => {
@@ -1349,12 +1548,11 @@ class LocalPanel {
           names.slice(a, b + 1).forEach((n) => this.sel.add(n));
         } else { this.sel.clear(); this.sel.add(i.name); }
         this.lastClick = i.name;
-        this.tbody.querySelectorAll('tr.row').forEach((r) => r.classList.toggle('sel', this.sel.has(r.querySelector('.name')?.title)));
+        this.cursor = i.name;
+        this.anchor = i.name;
+        markRows(this);
       });
-      tr.addEventListener('dblclick', () => {
-        if (i.dir) { this.stack.push({ handle: i.handle, name: i.name }); this.refresh(); }
-        else this.sendToRemote([i]);
-      });
+      tr.addEventListener('dblclick', () => this.openItem(i.name));
       tr.draggable = true;
       tr.addEventListener('dragstart', (e) => {
         if (!this.sel.has(i.name)) { this.sel.clear(); this.sel.add(i.name); }

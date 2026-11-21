@@ -194,3 +194,19 @@ body.sb-hidden #btnHideSidebar, body.sb-auto #btnHideSidebar { display: none; }
   .grid .span2 { grid-column: span 1; }
   .fm td.perm, .fm th.perm { display: none; }
 }
+
+/* navigacija tipkovnicom */
+tr.row { scroll-margin-top: 34px; }
+.pane:focus { outline: none; }
+tr.row.cursor td { box-shadow: inset 0 1px 0 var(--accent), inset 0 -1px 0 var(--accent); }
+tr.row.cursor td:first-child { box-shadow: inset 3px 0 0 var(--accent), inset 0 1px 0 var(--accent), inset 0 -1px 0 var(--accent); }
+tr.row.cursor-dim td { box-shadow: inset 0 1px 0 var(--border), inset 0 -1px 0 var(--border); }
+tr.row.cursor-dim td:first-child { box-shadow: inset 3px 0 0 var(--border), inset 0 1px 0 var(--border), inset 0 -1px 0 var(--border); }
+.split-on .side-active > .toolbar:first-child { box-shadow: inset 0 2px 0 var(--accent); }
+.split-on .side-active .side-label { text-decoration: underline; text-underline-offset: 3px; }
+table.keys { width: 100%; border-collapse: collapse; }
+table.keys td { padding: 4px 6px; border-bottom: 1px solid var(--line); }
+table.keys td:first-child { white-space: nowrap; width: 1%; }
+kbd { font-family: ui-monospace, monospace; font-size: 12px; background: var(--panel2); border: 1px solid var(--border);
+  border-bottom-width: 2px; border-radius: 4px; padding: 1px 6px; }
+table.keys td:last-child { width: 100%; padding-left: 14px; }

@@ -1,6 +1,6 @@
 {
   "name": "mterm",
-  "version": "1.4.0",
+  "version": "1.5.0",
   "description": "MTerm - web terminal (SSH) i upravitelj datoteka (SFTP, SCP, FTP, FTPS, WebDAV) u pregledniku",
   "type": "module",
   "main": "server/index.js",
