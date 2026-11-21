@@ -39,6 +39,10 @@ jobs:
       - run: npm install --no-audit --no-fund
       - name: Pokretanje testnih servera
         run: |
+          # preuzimanje slika s ponovnim pokušajima (registri povremeno vrate rate-limit)
+          for img in lscr.io/linuxserver/openssh-server:latest stilliard/pure-ftpd:latest bytemark/webdav:latest; do
+            for i in 1 2 3 4 5; do docker pull -q "$img" && break; echo "ponovni pokušaj $i za $img"; sleep $((i * 10)); done
+          done
           docker run -d --name sshd -p 2222:2222 -e PUID=1000 -e PGID=1000 \
             -e PASSWORD_ACCESS=true -e USER_NAME=test -e USER_PASSWORD=test \
             lscr.io/linuxserver/openssh-server:latest
